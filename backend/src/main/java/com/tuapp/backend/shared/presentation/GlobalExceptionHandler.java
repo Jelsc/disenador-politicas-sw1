@@ -47,8 +47,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGlobalException(
             Exception ex, WebRequest request) {
+        ex.printStackTrace(); // Added for debugging
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(buildErrorResponse("INTERNAL_ERROR", "An unexpected error occurred"));
+                .body(buildErrorResponse("INTERNAL_ERROR", "An unexpected error occurred: " + ex.getMessage()));
     }
 
     private Map<String, Object> buildErrorResponse(String error, String message) {

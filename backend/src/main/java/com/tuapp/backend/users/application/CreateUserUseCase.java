@@ -1,13 +1,16 @@
 package com.tuapp.backend.users.application;
 
 import com.tuapp.backend.shared.application.UseCase;
+import com.tuapp.backend.users.domain.DepartmentRepository;
 import com.tuapp.backend.users.domain.Role;
 import com.tuapp.backend.users.domain.User;
 import com.tuapp.backend.users.domain.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 /**
  * CreateUserUseCase: creates a new user in the system.
@@ -17,10 +20,14 @@ import java.util.Collections;
 public class CreateUserUseCase implements UseCase<CreateUserRequest, UserResponse> {
 
     private final UserRepository userRepository;
+    private final DepartmentRepository departmentRepository;
     private final PasswordEncoder passwordEncoder;
 
-    public CreateUserUseCase(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public CreateUserUseCase(UserRepository userRepository,
+                             DepartmentRepository departmentRepository,
+                             PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.departmentRepository = departmentRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -45,13 +52,22 @@ public class CreateUserUseCase implements UseCase<CreateUserRequest, UserRespons
             throw new IllegalArgumentException("Email already exists");
         }
 
+        Role selectedRole;
+        try {
+            selectedRole = Role.valueOf(request.getRole());
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("Invalid role");
+        }
+
+        List<String> departmentIds = normalizeDepartmentIds(selectedRole, request.getDepartmentIds());
+
         // Create user
         User user = new User();
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setRoles(Collections.singletonList(Role.valueOf(request.getRole())));
-        user.setDepartmentId(request.getDepartmentId());
+        user.setRoles(Collections.singletonList(selectedRole));
+        user.setDepartmentIds(departmentIds);
         user.setActive(true);
 
         // Save user
@@ -62,9 +78,37 @@ public class CreateUserUseCase implements UseCase<CreateUserRequest, UserRespons
                 savedUser.getId(),
                 savedUser.getUsername(),
                 savedUser.getEmail(),
-                savedUser.getRoles().get(0).name(),
-                savedUser.getDepartmentId(),
+                (savedUser.getRoles() != null && !savedUser.getRoles().isEmpty()) ? savedUser.getRoles().get(0).name() : null,
+                savedUser.getDepartmentIds() != null ? savedUser.getDepartmentIds() : Collections.emptyList(),
                 savedUser.isActive()
         );
+    }
+
+    private List<String> normalizeDepartmentIds(Role selectedRole, List<String> departmentIds) {
+        List<String> normalizedDepartmentIds = new ArrayList<>();
+
+        if (departmentIds != null) {
+            departmentIds.stream()
+                    .filter(departmentId -> departmentId != null && !departmentId.trim().isEmpty())
+                    .map(String::trim)
+                    .distinct()
+                    .forEach(normalizedDepartmentIds::add);
+        }
+
+        if (selectedRole == Role.OPERATOR) {
+            if (normalizedDepartmentIds.isEmpty()) {
+                throw new IllegalArgumentException("At least one department is required for OPERATOR users");
+            }
+
+            for (String departmentId : normalizedDepartmentIds) {
+                if (departmentRepository.findById(departmentId).isEmpty()) {
+                    throw new IllegalArgumentException("Department not found");
+                }
+            }
+
+            return normalizedDepartmentIds;
+        }
+
+        return Collections.emptyList();
     }
 }

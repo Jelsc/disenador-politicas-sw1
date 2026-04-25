@@ -1,1 +1,88 @@
 /* You can add global styles to this file, and also import other style files */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Soft Board Palette */
+  --color-bg-board: #F8FAFC;
+  --color-bg-panel: #F1F5F9;
+  --color-text-main: #0F172A;
+  --color-text-muted: #64748B;
+  --color-border: #CBD5E1;
+  --color-grid: #E2E8F0;
+
+  /* Brand Colors */
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-primary-soft: #DBEAFE;
+
+  --color-secondary: #7C3AED;
+  --color-secondary-soft: #EDE9FE;
+
+  /* Post-it Notes Colors */
+  --color-note-yellow: #FEF3C7;
+  --color-note-green: #DCFCE7;
+  --color-note-blue: #DBEAFE;
+  --color-note-pink: #FCE7F3;
+  --color-note-lilac: #EDE9FE;
+  --color-note-orange: #FFEDD5;
+
+  /* System States */
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-info: #3B82F6;
+  --color-disabled: #94A3B8;
+
+  /* Spacing Base */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  /* Typography */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-size-base: 14px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  color: var(--color-text-main);
+  background-color: var(--color-bg-board);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Custom Input base for future forms */
+.custom-input {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background-color: #fff;
+  color: var(--color-text-main);
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.custom-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.custom-label {
+  display: block;
+  font-weight: 500;
+  color: var(--color-text-main);
+  margin-bottom: var(--spacing-sm);
+  font-size: 13px;
+}

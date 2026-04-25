@@ -1,12 +1,15 @@
-FROM node:20-alpine AS build
+FROM node:20-alpine
+
 WORKDIR /app
+
+# Instalamos las dependencias primero para aprovechar la caché de Docker
 COPY package*.json ./
 RUN npm install
-COPY . .
-RUN npm run build
 
-FROM nginx:alpine
-# Nota: A partir de Angular 17, el output del build suele estar en dist/frontend/browser
-COPY --from=build /app/dist/frontend/browser /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+# Copiamos el resto del código
+COPY . .
+
+EXPOSE 4200
+
+# Usamos poll para asegurar que Docker en Windows detecte los cambios de archivos
+CMD ["npx", "ng", "serve", "--host", "0.0.0.0", "--poll", "2000"]

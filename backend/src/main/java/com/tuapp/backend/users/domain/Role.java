@@ -7,5 +7,6 @@ package com.tuapp.backend.users.domain;
 public enum Role {
     ADMIN,      // Can manage users, policies, audit
     DESIGNER,   // Can create policies and workflows
-    OPERATOR    // Can only execute workflows
+    OPERATOR,   // Can only execute workflows
+    CLIENT      // External actor for tracking, notifications and signing
 }

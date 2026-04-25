@@ -1,5 +1,7 @@
 package com.tuapp.backend.users.application;
 
+import java.util.List;
+
 /**
  * Response DTO for user operations
  */
@@ -8,17 +10,17 @@ public class UserResponse {
     private String username;
     private String email;
     private String role;
-    private String departmentId;
+    private List<String> departmentIds;
     private boolean active;
 
     public UserResponse() {}
 
-    public UserResponse(String id, String username, String email, String role, String departmentId, boolean active) {
+    public UserResponse(String id, String username, String email, String role, List<String> departmentIds, boolean active) {
         this.id = id;
         this.username = username;
         this.email = email;
         this.role = role;
-        this.departmentId = departmentId;
+        this.departmentIds = departmentIds;
         this.active = active;
     }
 
@@ -55,12 +57,12 @@ public class UserResponse {
         this.role = role;
     }
 
-    public String getDepartmentId() {
-        return departmentId;
+    public List<String> getDepartmentIds() {
+        return departmentIds;
     }
 
-    public void setDepartmentId(String departmentId) {
-        this.departmentId = departmentId;
+    public void setDepartmentIds(List<String> departmentIds) {
+        this.departmentIds = departmentIds;
     }
 
     public boolean isActive() {

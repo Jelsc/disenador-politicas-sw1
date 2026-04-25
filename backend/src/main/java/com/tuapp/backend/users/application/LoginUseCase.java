@@ -55,7 +55,7 @@ public class LoginUseCase implements UseCase<LoginRequest, LoginResponse> {
         // Generate JWT token with user claims
         Map<String, Object> claims = new HashMap<>();
         claims.put("roles", user.getRoles());
-        claims.put("departmentId", user.getDepartmentId());
+        claims.put("departmentIds", user.getDepartmentIds());
 
         String token = jwtTokenProvider.generateToken(user.getUsername(), claims);
 
@@ -63,7 +63,7 @@ public class LoginUseCase implements UseCase<LoginRequest, LoginResponse> {
         return new LoginResponse(
                 token,
                 user.getUsername(),
-                user.getRoles().get(0).name(),
+                (user.getRoles() != null && !user.getRoles().isEmpty()) ? user.getRoles().get(0).name() : null,
                 jwtExpiration
         );
     }

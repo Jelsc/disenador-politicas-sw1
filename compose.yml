@@ -54,7 +54,10 @@ services:
       dockerfile: Dockerfile
     container_name: tuapp-frontend
     ports:
-      - "4200:80" # Usaremos nginx en el frontend para servir angular en el puerto 80 del container
+      - "4200:4200"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Evita que un node_modules local pise al del contenedor
     depends_on:
       - backend
     restart: unless-stopped

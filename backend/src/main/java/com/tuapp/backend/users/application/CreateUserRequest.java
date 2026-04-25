@@ -1,5 +1,7 @@
 package com.tuapp.backend.users.application;
 
+import java.util.List;
+
 /**
  * Request DTO for creating a new user
  */
@@ -7,17 +9,17 @@ public class CreateUserRequest {
     private String username;
     private String email;
     private String password;
-    private String role; // ADMIN, DESIGNER, OPERATOR
-    private String departmentId;
+    private String role; // ADMIN, DESIGNER, OPERATOR, CLIENT
+    private List<String> departmentIds;
 
     public CreateUserRequest() {}
 
-    public CreateUserRequest(String username, String email, String password, String role, String departmentId) {
+    public CreateUserRequest(String username, String email, String password, String role, List<String> departmentIds) {
         this.username = username;
         this.email = email;
         this.password = password;
         this.role = role;
-        this.departmentId = departmentId;
+        this.departmentIds = departmentIds;
     }
 
     // Getters & Setters
@@ -53,11 +55,11 @@ public class CreateUserRequest {
         this.role = role;
     }
 
-    public String getDepartmentId() {
-        return departmentId;
+    public List<String> getDepartmentIds() {
+        return departmentIds;
     }
 
-    public void setDepartmentId(String departmentId) {
-        this.departmentId = departmentId;
+    public void setDepartmentIds(List<String> departmentIds) {
+        this.departmentIds = departmentIds;
     }
 }

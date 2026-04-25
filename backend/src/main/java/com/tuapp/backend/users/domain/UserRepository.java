@@ -12,7 +12,7 @@ public interface UserRepository {
     Optional<User> findByUsername(String username);
     Optional<User> findByEmail(String email);
     Iterable<User> findAll();
-    Iterable<User> findByDepartmentId(String departmentId);
+    Iterable<User> findByDepartmentIdsContaining(String departmentId);
     void deleteById(String id);
     boolean existsByUsername(String username);
     boolean existsByEmail(String email);

@@ -44,8 +44,8 @@ public class UserRepositoryAdapter implements UserRepository {
     }
 
     @Override
-    public Iterable<User> findByDepartmentId(String departmentId) {
-        return mongoUserRepository.findByDepartmentId(departmentId);
+    public Iterable<User> findByDepartmentIdsContaining(String departmentId) {
+        return mongoUserRepository.findByDepartmentIdsContaining(departmentId);
     }
 
     @Override

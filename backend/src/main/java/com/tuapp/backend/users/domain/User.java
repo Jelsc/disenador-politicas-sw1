@@ -23,21 +23,22 @@ public class User extends AuditableEntity {
 
     private List<Role> roles;
 
-    private String departmentId; // Reference to Department
+    private List<String> departmentIds; // References to Departments
 
     private boolean active;
 
     // Constructors
     public User() {
+        this.departmentIds = List.of();
         this.active = true;
     }
 
-    public User(String username, String email, String password, List<Role> roles, String departmentId) {
+    public User(String username, String email, String password, List<Role> roles, List<String> departmentIds) {
         this.username = username;
         this.email = email;
         this.password = password;
         this.roles = roles;
-        this.departmentId = departmentId;
+        this.departmentIds = departmentIds;
         this.active = true;
     }
 
@@ -74,12 +75,12 @@ public class User extends AuditableEntity {
         this.roles = roles;
     }
 
-    public String getDepartmentId() {
-        return departmentId;
+    public List<String> getDepartmentIds() {
+        return departmentIds;
     }
 
-    public void setDepartmentId(String departmentId) {
-        this.departmentId = departmentId;
+    public void setDepartmentIds(List<String> departmentIds) {
+        this.departmentIds = departmentIds;
     }
 
     public boolean isActive() {
@@ -97,7 +98,7 @@ public class User extends AuditableEntity {
                 ", username='" + username + '\'' +
                 ", email='" + email + '\'' +
                 ", roles=" + roles +
-                ", departmentId='" + departmentId + '\'' +
+                ", departmentIds=" + departmentIds +
                 ", active=" + active +
                 '}';
     }
