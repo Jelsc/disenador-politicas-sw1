@@ -1,4 +1,4 @@
-import { ApplicationConfig } from '@angular/core';
+import { ApplicationConfig, provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { routes } from './app.routes';
@@ -17,6 +17,7 @@ import {
   lucideLogOut,
   lucideChevronDown,
   lucideChevronRight,
+  lucideChevronLeft,
   lucidePlus,
   lucideFolderOpen,
   lucideEye,
@@ -31,11 +32,16 @@ import {
   lucideUserCheck,
   lucideX,
   lucideArchiveX,
-  lucideRefreshCw
+  lucideArchive,
+  lucideCopy,
+  lucideRefreshCw,
+  lucideCircleAlert,
+  lucideWorkflow
 } from '@ng-icons/lucide';
 
 export const appConfig: ApplicationConfig = {
   providers: [
+    provideZonelessChangeDetection(),
     provideRouter(routes),
     provideHttpClient(withInterceptors([authInterceptor])),
     provideIcons({
@@ -51,6 +57,7 @@ export const appConfig: ApplicationConfig = {
       lucideLogOut,
       lucideChevronDown,
       lucideChevronRight,
+      lucideChevronLeft,
       lucidePlus,
       lucideFolderOpen,
       lucideEye,
@@ -65,7 +72,11 @@ export const appConfig: ApplicationConfig = {
       lucideUserCheck,
       lucideX,
       lucideArchiveX,
-      lucideRefreshCw
+      lucideArchive,
+      lucideCopy,
+      lucideRefreshCw,
+      lucideCircleAlert,
+      lucideWorkflow
     })
   ]
 };

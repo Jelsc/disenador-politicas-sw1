@@ -1,10 +1,11 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { PolicyService } from '../../services/policy.service';
-import { Policy } from '../../models/policy.model';
+import { Policy, PolicyInvitationNotification } from '../../models/policy.model';
 import { AuthService } from '../../../core/services/auth.service';
 import { NgIconComponent } from '@ng-icons/core';
+import { UiNotificationService } from '../../../core/services/ui-notification.service';
 
 @Component({
   selector: 'app-policy-list',
@@ -16,8 +17,9 @@ import { NgIconComponent } from '@ng-icons/core';
         <div class="header-text">
           <h2 class="page-title">Gestión de Políticas</h2>
           <p class="page-subtitle">Consulta y administra las políticas del sistema.</p>
+          <p class="page-counter" *ngIf="!loading() && !errorMessage()">{{ policies().length }} política(s) encontradas</p>
         </div>
-        <div class="header-actions" *ngIf="canManagePolicies">
+        <div class="header-actions" *ngIf="canManagePolicies()">
           <button class="btn-primary" routerLink="/policies/new">
             <ng-icon name="lucidePlus" class="icon-sm"></ng-icon>
             Crear Política
@@ -26,18 +28,23 @@ import { NgIconComponent } from '@ng-icons/core';
       </div>
 
       <div class="content-panel">
-        <div class="loading-state" *ngIf="loading">Cargando políticas...</div>
+        <div class="loading-state" *ngIf="loading()">Cargando políticas...</div>
+        <div class="error-state" *ngIf="!loading() && errorMessage()">
+          <ng-icon name="lucideCircleAlert" class="empty-icon"></ng-icon>
+          <h3>No se pudieron cargar las políticas</h3>
+          <p>{{ errorMessage() }}</p>
+        </div>
         
-        <div class="empty-state" *ngIf="!loading && policies.length === 0">
+        <div class="empty-state" *ngIf="!loading() && !errorMessage() && policies().length === 0">
           <ng-icon name="lucideFolderOpen" class="empty-icon"></ng-icon>
           <h3>No hay políticas</h3>
           <p>Aún no se ha creado ninguna política en el sistema.</p>
-          <button class="btn-secondary" routerLink="/policies/new" *ngIf="canManagePolicies">
+          <button class="btn-secondary" routerLink="/policies/new" *ngIf="canManagePolicies()">
             Crear la primera
           </button>
         </div>
 
-        <table class="data-table" *ngIf="!loading && policies.length > 0">
+        <table class="data-table" *ngIf="!loading() && !errorMessage() && policies().length > 0">
           <thead>
             <tr>
               <th>Nombre</th>
@@ -48,26 +55,32 @@ import { NgIconComponent } from '@ng-icons/core';
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let policy of policies">
+            <tr *ngFor="let policy of policies()">
               <td>
                 <div class="item-title">{{ policy.name }}</div>
                 <div class="item-desc">{{ policy.description }}</div>
               </td>
-              <td><span class="badge-version">v{{ policy.version }}</span></td>
+              <td><span class="badge-version">v{{ policy.version || '1.0.0' }}</span></td>
               <td>
                 <span class="status-chip" [ngClass]="getStatusClass(policy.status)">
                   {{ policy.status }}
                 </span>
               </td>
-              <td class="text-muted">{{ policy.updatedAt | date:'short' }}</td>
+              <td class="text-muted">{{ formatBoliviaDate(policy.updatedAt) }}</td>
               <td class="actions-col">
                 <button class="btn-icon" title="Ver detalle" (click)="viewPolicy(policy.id)">
                   <ng-icon name="lucideEye"></ng-icon>
                 </button>
-                <button class="btn-icon" title="Editar" *ngIf="canManagePolicies" (click)="editPolicy(policy.id)">
+                <button class="btn-icon" title="Editar" *ngIf="canEditPolicy(policy)" (click)="editPolicy(policy.id)">
                   <ng-icon name="lucideEdit2"></ng-icon>
                 </button>
-                <button class="btn-icon danger" title="Eliminar" *ngIf="canManagePolicies" (click)="deletePolicy(policy.id)">
+                <button class="btn-icon" title="Clonar" *ngIf="canClonePolicy(policy)" (click)="clonePolicy(policy.id)">
+                  <ng-icon name="lucideCopy"></ng-icon>
+                </button>
+                <button class="btn-icon" title="Archivar" *ngIf="canArchivePolicy(policy)" (click)="archivePolicy(policy.id)">
+                  <ng-icon name="lucideArchive"></ng-icon>
+                </button>
+                <button class="btn-icon danger" title="Borrar" *ngIf="canDeletePolicy(policy)" (click)="deletePolicy(policy.id)">
                   <ng-icon name="lucideTrash2"></ng-icon>
                 </button>
               </td>
@@ -101,6 +114,13 @@ import { NgIconComponent } from '@ng-icons/core';
       margin: 0;
       color: var(--color-text-muted);
       font-size: 14px;
+    }
+
+    .page-counter {
+      margin: var(--spacing-xs) 0 0;
+      color: var(--color-primary);
+      font-size: 12px;
+      font-weight: 700;
     }
 
     .btn-primary {
@@ -151,11 +171,13 @@ import { NgIconComponent } from '@ng-icons/core';
       overflow: hidden;
     }
 
-    .loading-state, .empty-state {
+    .loading-state, .empty-state, .error-state {
       padding: var(--spacing-xl);
       text-align: center;
       color: var(--color-text-muted);
     }
+
+    .error-state h3 { color: var(--color-error); margin: 0 0 var(--spacing-xs) 0; }
 
     .empty-icon {
       font-size: 40px;
@@ -284,42 +306,74 @@ import { NgIconComponent } from '@ng-icons/core';
   `]
 })
 export class PolicyListComponent implements OnInit {
-  policies: Policy[] = [];
-  loading = true;
-  canManagePolicies = false;
+  policies = signal<Policy[]>([]);
+  loading = signal(true);
+  canManagePolicies = signal(false);
+  errorMessage = signal('');
+  pendingInvitations: PolicyInvitationNotification[] = [];
+  private currentUsername: string | null = null;
+  private currentRole: string | null = null;
 
   constructor(
     private policyService: PolicyService,
     private authService: AuthService,
-    private router: Router
-  ) {}
+    private router: Router,
+    private uiNotification: UiNotificationService
+  ) { }
 
   ngOnInit(): void {
     const role = this.authService.getUserRole();
-    this.canManagePolicies = role === 'ADMIN' || role === 'DESIGNER';
+    this.currentRole = role;
+    this.currentUsername = this.authService.getUsername();
+    this.canManagePolicies.set(role === 'ADMIN' || role === 'DESIGNER');
+    this.loadPendingInvitations();
     this.loadPolicies();
   }
 
   loadPolicies(): void {
-    this.loading = true;
+    this.loading.set(true);
+    this.errorMessage.set('');
     this.policyService.getAllPolicies().subscribe({
       next: (data) => {
-        this.policies = data;
-        this.loading = false;
+        this.policies.set(Array.isArray(data) ? data : []);
+        this.loading.set(false);
       },
       error: (err) => {
         console.error('Error loading policies', err);
-        this.loading = false;
+        this.errorMessage.set(err.status === 403
+          ? 'Tu rol no tiene permisos para ver políticas. Entrá con ADMIN o DESIGNER.'
+          : 'Revisá que el backend esté levantado y que tu sesión siga activa.');
+        this.loading.set(false);
       }
     });
   }
 
   getStatusClass(status: string): string {
     switch(status) {
-      case 'ACTIVE': return 'status-active';
-      case 'DRAFT': return 'status-draft';
-      case 'ARCHIVED': return 'status-archived';
+      case 'ACTIVE':
+      case 'PUBLICADA': return 'status-active';
+      case 'DRAFT':
+      case 'BORRADOR':
+      case 'EN_REVISION': return 'status-draft';
+      case 'ARCHIVED':
+      case 'ARCHIVADA': return 'status-archived';
       default: return 'status-draft';
+    }
+  }
+
+  formatBoliviaDate(value?: string): string {
+    if (!value) return '';
+    try {
+      const normalized = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : `${value}Z`;
+      const date = new Date(normalized);
+      if (Number.isNaN(date.getTime())) return '';
+      return new Intl.DateTimeFormat('es-BO', {
+        timeZone: 'America/La_Paz',
+        dateStyle: 'short',
+        timeStyle: 'short'
+      }).format(date);
+    } catch {
+      return '';
     }
   }
 
@@ -331,11 +385,90 @@ export class PolicyListComponent implements OnInit {
     if(id) this.router.navigate(['/policies/edit', id]);
   }
 
+  canEditPolicy(policy: Policy): boolean {
+    if (this.isPublished(policy) || this.isArchived(policy)) return false;
+    if (this.currentRole === 'ADMIN') return true;
+    const username = this.currentUsername;
+    if (!username) return false;
+    return policy.createdBy === username || (policy.editors ?? []).includes(username);
+  }
+
+  canDeletePolicy(policy: Policy): boolean {
+    if (this.isPublished(policy) || this.isArchived(policy)) return false;
+    if (this.currentRole === 'ADMIN') return true;
+    const username = this.currentUsername;
+    if (!username) return false;
+    return policy.createdBy === username || (policy.editors ?? []).includes(username);
+  }
+
+  canClonePolicy(policy: Policy): boolean {
+    return !!policy.id;
+  }
+
+  canArchivePolicy(policy: Policy): boolean {
+    if (this.isArchived(policy) || !this.isPublished(policy)) return false;
+    if (this.currentRole === 'ADMIN') return true;
+    const username = this.currentUsername;
+    if (!username) return false;
+    return policy.createdBy === username || (policy.editors ?? []).includes(username);
+  }
+
+  loadPendingInvitations(): void {
+    this.policyService.getPendingInvitations().subscribe({
+      next: invitations => {
+        this.pendingInvitations = Array.isArray(invitations) ? invitations : [];
+        this.pendingInvitations.forEach(invitation => setTimeout(() => this.uiNotification.showInvitation(invitation)));
+      },
+      error: err => console.warn('Error loading pending invitations', err)
+    });
+  }
+
+  clonePolicy(id?: string): void {
+    if (!id) return;
+    this.policyService.clonePolicy(id).subscribe({
+      next: () => {
+        this.uiNotification.show('success', 'La política se clonó en segundo plano como nuevo borrador.');
+        setTimeout(() => this.loadPolicies());
+      },
+      error: err => this.uiNotification.show('error', err?.error?.message || 'No se pudo clonar la política.')
+    });
+  }
+
+  archivePolicy(id?: string): void {
+    if (!id) return;
+    this.policyService.archivePolicy(id).subscribe({
+      next: () => {
+        this.uiNotification.show('success', 'La política fue archivada.');
+        setTimeout(() => this.loadPolicies());
+      },
+      error: err => this.uiNotification.show('error', err?.error?.message || 'No se pudo archivar la política.')
+    });
+  }
+
+  private isPublished(policy: Policy): boolean {
+    return ['PUBLICADA', 'ACTIVE'].includes(policy.status);
+  }
+
+  private isArchived(policy: Policy): boolean {
+    return ['ARCHIVADA', 'ARCHIVED'].includes(policy.status);
+  }
+
   deletePolicy(id?: string): void {
-    if(id && confirm('¿Estás seguro de eliminar esta política?')) {
-      this.policyService.deletePolicy(id).subscribe(() => {
-        this.loadPolicies();
-      });
-    }
+    if (!id) return;
+    this.uiNotification.confirm({
+      title: 'Borrar política',
+      message: '¿Estás seguro de borrar esta política? Esta acción no se puede deshacer.',
+      confirmLabel: 'Borrar',
+      cancelLabel: 'Cancelar',
+      onConfirm: () => {
+        this.policyService.deletePolicy(id).subscribe({
+          next: () => {
+            this.uiNotification.show('success', 'La política fue eliminada.');
+            setTimeout(() => this.loadPolicies());
+          },
+          error: err => this.uiNotification.show('error', err?.error?.message || 'No se pudo borrar la política.')
+        });
+      }
+    });
   }
 }

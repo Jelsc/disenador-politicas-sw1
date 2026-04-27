@@ -8,6 +8,7 @@ interface SubMenu {
   label: string;
   path: string;
   icon: string;
+  allowedRoles?: string[];
 }
 
 interface MenuModule {
@@ -26,13 +27,18 @@ interface MenuModule {
   imports: [CommonModule, RouterModule, NgIconComponent],
   template: `
     <div class="dashboard-layout">
-      <aside class="sidebar">
+      <aside class="sidebar" [class.collapsed]="sidebarCollapsed()">
         <div class="sidebar-header">
-          <div class="brand">
-            <div class="logo-mark">TuApp</div>
-            <span class="brand-text">Espacio de Trabajo</span>
+          <div class="header-top">
+            <div class="brand" *ngIf="!sidebarCollapsed()">
+              <div class="logo-mark">TuApp</div>
+              <span class="brand-text">Espacio de Trabajo</span>
+            </div>
+            <button class="sidebar-toggle" type="button" (click)="toggleSidebar()" [title]="sidebarCollapsed() ? 'Expandir menú' : 'Contraer menú'">
+              <ng-icon [name]="sidebarCollapsed() ? 'lucideChevronRight' : 'lucideChevronLeft'" class="toggle-icon"></ng-icon>
+            </button>
           </div>
-          <div class="role-badge">{{ userRole() }}</div>
+          <div class="role-badge" *ngIf="!sidebarCollapsed()">{{ userRole() }}</div>
         </div>
 
         <nav class="sidebar-nav">
@@ -46,7 +52,7 @@ interface MenuModule {
             >
               <div class="module-header-content">
                 <ng-icon [name]="mod.icon" class="module-icon"></ng-icon>
-                <span class="module-label">{{ mod.label }}</span>
+                <span class="module-label" *ngIf="!sidebarCollapsed()">{{ mod.label }}</span>
               </div>
             </a>
 
@@ -54,12 +60,12 @@ interface MenuModule {
               <div class="module-header" (click)="toggleModule(mod.id)" [class.expanded]="mod.expanded">
                 <div class="module-header-content">
                   <ng-icon [name]="mod.icon" class="module-icon"></ng-icon>
-                  <span class="module-label">{{ mod.label }}</span>
+                  <span class="module-label" *ngIf="!sidebarCollapsed()">{{ mod.label }}</span>
                 </div>
-                <ng-icon [name]="mod.expanded ? 'lucideChevronDown' : 'lucideChevronRight'" class="chevron-icon"></ng-icon>
+                <ng-icon *ngIf="!sidebarCollapsed()" [name]="mod.expanded ? 'lucideChevronDown' : 'lucideChevronRight'" class="chevron-icon"></ng-icon>
               </div>
 
-              <div class="submodule-list" *ngIf="mod.expanded">
+              <div class="submodule-list" *ngIf="mod.expanded && !sidebarCollapsed()">
                 <a
                   *ngFor="let sub of mod.submodules"
                   [routerLink]="sub.path"
@@ -77,7 +83,7 @@ interface MenuModule {
         <div class="sidebar-footer">
           <button (click)="logout()" class="logout-btn">
             <ng-icon name="lucideLogOut" class="logout-icon"></ng-icon>
-            <span class="module-label">Cerrar sesión</span>
+            <span class="module-label" *ngIf="!sidebarCollapsed()">Cerrar sesión</span>
           </button>
         </div>
       </aside>
@@ -110,12 +116,59 @@ interface MenuModule {
     }
 
     .sidebar {
+      position: relative;
       width: 260px;
       background-color: var(--color-bg-panel);
       display: flex;
       flex-direction: column;
       border-right: 1px solid var(--color-border);
       z-index: 10;
+      transition: width .18s ease;
+    }
+
+    .sidebar.collapsed {
+      width: 72px;
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sidebar.collapsed .header-top {
+      justify-content: center;
+    }
+
+    .sidebar-toggle {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      border: 1px solid var(--color-border);
+      background: transparent;
+      color: var(--color-text-main);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.2s;
+      padding: 0;
+      line-height: 1;
+    }
+
+    .sidebar-toggle:hover {
+      background-color: rgba(0, 0, 0, 0.05);
+    }
+
+    .toggle-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      line-height: 1;
     }
 
     .sidebar-header {
@@ -130,6 +183,7 @@ interface MenuModule {
       display: flex;
       align-items: center;
       gap: var(--spacing-sm);
+      min-height: 26px;
     }
 
     .logo-mark {
@@ -381,8 +435,10 @@ interface MenuModule {
 })
 export class DashboardComponent implements OnInit {
   userRole = signal<string>('OPERATOR');
+  sidebarCollapsed = signal(false);
 
-  modules: MenuModule[] = [
+  private modules = signal<MenuModule[]>([
+
     {
       id: 'home',
       label: 'Inicio',
@@ -395,7 +451,7 @@ export class DashboardComponent implements OnInit {
       id: 'admin',
       label: 'Administración',
       icon: 'lucideShield',
-      expanded: true,
+      expanded: false,
       allowedRoles: ['ADMIN'],
       submodules: [
         { label: 'Usuarios', path: '/users', icon: 'lucideUsers' },
@@ -407,18 +463,18 @@ export class DashboardComponent implements OnInit {
       id: 'management',
       label: 'Gestión',
       icon: 'lucideBookOpen',
-      expanded: true,
+      expanded: false,
       allowedRoles: ['ADMIN', 'DESIGNER', 'OPERATOR'],
       submodules: [
-        { label: 'Políticas', path: '/policies', icon: 'lucideFolderOpen' },
-        { label: 'Trámites', path: '/tramites', icon: 'lucideSettings' }
+        { label: 'Políticas', path: '/policies', icon: 'lucideFolderOpen', allowedRoles: ['ADMIN', 'DESIGNER'] },
+        { label: 'Crear trámites', path: '/tramites', icon: 'lucideSettings', allowedRoles: ['ADMIN', 'OPERATOR'] }
       ]
     },
     {
       id: 'design',
       label: 'Diseño Visual',
       icon: 'lucidePenTool',
-      expanded: true,
+      expanded: false,
       allowedRoles: ['ADMIN', 'DESIGNER'],
       submodules: [
         { label: 'Formularios', path: '/forms/builder', icon: 'lucideEdit2' }
@@ -428,22 +484,29 @@ export class DashboardComponent implements OnInit {
       id: 'operation',
       label: 'Operación',
       icon: 'lucideInbox',
-      expanded: true,
+      expanded: false,
       allowedRoles: ['ADMIN', 'OPERATOR'],
       submodules: [
-        { label: 'Mis Tareas', path: '/tasks', icon: 'lucideClipboardList' }
+        { label: 'Buzón departamento', path: '/tasks/inbox', icon: 'lucideInbox' },
+        { label: 'Mis tareas', path: '/tasks/mine', icon: 'lucideClipboardList' }
       ]
     }
-  ];
+  ]);
 
   allowedModules = computed(() => {
-    return this.modules.filter(mod => mod.allowedRoles.includes(this.userRole()));
+    return this.modules()
+      .filter(mod => mod.allowedRoles.includes(this.userRole()))
+      .map(mod => ({
+        ...mod,
+        submodules: mod.submodules?.filter(sub => !sub.allowedRoles || sub.allowedRoles.includes(this.userRole()))
+      }))
+      .filter(mod => mod.path || (mod.submodules?.length ?? 0) > 0);
   });
 
   constructor(
     private authService: AuthService,
     public router: Router
-  ) {}
+  ) { }
 
   ngOnInit(): void {
     this.authService.getUserRole$().subscribe(role => {
@@ -454,9 +517,17 @@ export class DashboardComponent implements OnInit {
   }
 
   toggleModule(id: string): void {
-    const mod = this.modules.find(m => m.id === id);
-    if (mod) {
-      mod.expanded = !mod.expanded;
+    if (this.sidebarCollapsed()) return;
+    this.modules.update(mods =>
+      mods.map(m => m.id === id ? { ...m, expanded: !m.expanded } : m)
+    );
+  }
+
+  toggleSidebar(): void {
+    const collapsing = !this.sidebarCollapsed();
+    this.sidebarCollapsed.set(collapsing);
+    if (collapsing) {
+      this.modules.update(mods => mods.map(m => ({ ...m, expanded: false })));
     }
   }
 

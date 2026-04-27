@@ -8,6 +8,7 @@ import { PolicyListComponent } from './policies/components/policy-list/policy-li
 import { PolicyFormComponent } from './policies/components/policy-form/policy-form.component';
 import { UserManagementComponent } from './admin/components/users/user-management.component';
 import { DepartmentManagementComponent } from './admin/components/departments/department-management.component';
+import { ProcedureSimulatorComponent } from './execution/components/procedure-simulator/procedure-simulator.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: '/dashboard', pathMatch: 'full' },
@@ -34,7 +35,11 @@ export const routes: Routes = [
       },
       
       // Policies Routes
-      { path: 'policies', component: PolicyListComponent },
+      {
+        path: 'policies',
+        component: PolicyListComponent,
+        canActivate: [roleGuard(['ADMIN', 'DESIGNER'])]
+      },
       { 
         path: 'policies/new', 
         component: PolicyFormComponent,
@@ -44,6 +49,35 @@ export const routes: Routes = [
         path: 'policies/edit/:id', 
         component: PolicyFormComponent,
         canActivate: [roleGuard(['ADMIN', 'DESIGNER'])]
+      },
+      {
+        path: 'policies/:id',
+        component: PolicyFormComponent,
+        canActivate: [roleGuard(['ADMIN', 'DESIGNER'])],
+        data: { mode: 'view' }
+      },
+      {
+        path: 'tramites',
+        component: ProcedureSimulatorComponent,
+        canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
+        data: { operationView: 'procedures' }
+      },
+      {
+        path: 'tasks',
+        redirectTo: 'tasks/inbox',
+        pathMatch: 'full'
+      },
+      {
+        path: 'tasks/inbox',
+        component: ProcedureSimulatorComponent,
+        canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
+        data: { operationView: 'inbox' }
+      },
+      {
+        path: 'tasks/mine',
+        component: ProcedureSimulatorComponent,
+        canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
+        data: { operationView: 'mine' }
       }
     ]
   },

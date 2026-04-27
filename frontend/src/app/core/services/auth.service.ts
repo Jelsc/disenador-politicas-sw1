@@ -10,6 +10,7 @@ export class AuthService {
   private apiUrl = 'http://localhost:8080/api/auth';
   private tokenKey = 'jwt_token';
   private userRole$ = new BehaviorSubject<string | null>(null);
+  private username$ = new BehaviorSubject<string | null>(null);
 
   constructor(private http: HttpClient) {
     this.loadUserFromStorage();
@@ -33,7 +34,9 @@ export class AuthService {
 
   logout(): void {
     localStorage.removeItem(this.tokenKey);
+    localStorage.removeItem('username');
     this.userRole$.next(null);
+    this.username$.next(null);
   }
 
   setToken(token: string): void {
@@ -42,7 +45,10 @@ export class AuthService {
     // Extract first role from roles array, fallback to OPERATOR
     const roles = decodedToken.roles || [];
     const role = (Array.isArray(roles) && roles.length > 0) ? roles[0] : 'OPERATOR';
+    const username = decodedToken.sub || 'usuario';
+    localStorage.setItem('username', username);
     this.userRole$.next(role);
+    this.username$.next(username);
   }
 
   getToken(): string | null {
@@ -65,6 +71,14 @@ export class AuthService {
     return this.userRole$.value;
   }
 
+  getUsername(): string | null {
+    return localStorage.getItem('username');
+  }
+
+  getUsername$(): Observable<string | null> {
+    return this.username$.asObservable();
+  }
+
   getUserRole$(): Observable<string | null> {
     return this.userRole$.asObservable();
   }
@@ -78,6 +92,7 @@ export class AuthService {
         const roles = decodedToken.roles || [];
         const role = (Array.isArray(roles) && roles.length > 0) ? roles[0] : 'OPERATOR';
         this.userRole$.next(role);
+        this.username$.next(decodedToken.sub || localStorage.getItem('username'));
       } catch (err) {
         this.logout();
       }

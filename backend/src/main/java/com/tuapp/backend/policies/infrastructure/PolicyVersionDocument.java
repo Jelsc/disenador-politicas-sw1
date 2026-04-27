@@ -1,6 +1,5 @@
 package com.tuapp.backend.policies.infrastructure;
 
-import com.tuapp.backend.policies.domain.PolicyInvitation;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,25 +8,27 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Document(collection = "policies")
-public class PolicyDocument {
+@Document(collection = "policy_versions")
+public class PolicyVersionDocument {
     @Id
     private String id;
+    private String policyId;
+    private Integer revision;
+    private Integer versionNumber;
     private String name;
     private String description;
     private String version;
     private String rules;
-    private String createdBy;
-    private List<String> editors;
-    private List<PolicyInvitation> invitations;
-    private String currentPublishedVersionId;
+    private String diagramSnapshotJson;
     private String status;
+    private String createdBy;
     private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private LocalDateTime publishedAt;
+    private boolean published;
+    private String changelogSummary;
 }
