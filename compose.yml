@@ -16,12 +16,13 @@ services:
       - APP_ENV=${APP_ENV}
       - FRONTEND_DOMAIN=${FRONTEND_DOMAIN}
       - API_DOMAIN=${API_DOMAIN}
+      - CERTBOT_CERT_NAME=${CERTBOT_CERT_NAME:-${FRONTEND_DOMAIN}}
     depends_on:
       - frontend
       - backend
       - ai-service
     restart: unless-stopped
-    command: /bin/sh -c "if [ \"$$APP_ENV\" = \"prod\" ]; then if [ -f /etc/letsencrypt/live/$$FRONTEND_DOMAIN/fullchain.pem ] && [ -f /etc/letsencrypt/live/$$API_DOMAIN/fullchain.pem ]; then envsubst '$$FRONTEND_DOMAIN $$API_DOMAIN' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf; else envsubst '$$FRONTEND_DOMAIN $$API_DOMAIN' < /etc/nginx/templates/default.prod-bootstrap.conf.template > /etc/nginx/conf.d/default.conf; fi; else envsubst '$$API_DOMAIN' < /etc/nginx/templates/default.local.conf.template > /etc/nginx/conf.d/default.conf; fi && exec nginx -g 'daemon off;'"
+    command: /bin/sh -c "if [ \"$$APP_ENV\" = \"prod\" ]; then if [ -f /etc/letsencrypt/live/$$CERTBOT_CERT_NAME/fullchain.pem ] && [ -f /etc/letsencrypt/live/$$CERTBOT_CERT_NAME/privkey.pem ]; then envsubst '$$FRONTEND_DOMAIN $$API_DOMAIN $$CERTBOT_CERT_NAME' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf; else envsubst '$$FRONTEND_DOMAIN $$API_DOMAIN' < /etc/nginx/templates/default.prod-bootstrap.conf.template > /etc/nginx/conf.d/default.conf; fi; else envsubst '$$API_DOMAIN' < /etc/nginx/templates/default.local.conf.template > /etc/nginx/conf.d/default.conf; fi && exec nginx -g 'daemon off;'"
 
   certbot:
     image: certbot/certbot
