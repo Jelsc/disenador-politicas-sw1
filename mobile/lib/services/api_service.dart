@@ -1,13 +1,12 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/procedure_ticket.dart';
 
-import 'package:flutter/foundation.dart';
-
 class ApiService {
   // En debug asume local emulador, en release asume producción
-  static const String baseUrl = kReleaseMode 
-      ? 'https://api.midominio.com/api' 
+  static const String baseUrl = kReleaseMode
+      ? 'https://api-primerpacialsw.duckdns.org/api'
       : 'http://10.0.2.2:8080/api';
 
   Future<Map<String, dynamic>> login(String username, String password) async {
@@ -46,20 +45,6 @@ class ApiService {
   }
 
   Future<List<ProcedureTicket>> getMyProcedures(String token) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/users/me/fcm-token'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({'token': fcmToken}),
-      );
-      return response.statusCode == 200;
-    } catch (e) {
-      return false;
-    }
-  }
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/operations/procedures/mine'),
