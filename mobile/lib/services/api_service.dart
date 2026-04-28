@@ -1,13 +1,14 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/procedure_ticket.dart';
 
 class ApiService {
-  // En debug asume local emulador, en release asume producción
-  static const String baseUrl = kReleaseMode
-      ? 'https://api-primerpacialsw.duckdns.org/api'
-      : 'http://10.0.2.2:8080/api';
+  // Elegí MANUALMENTE la URL que quieras usar.
+  // LOCAL Android emulator:
+  static const String baseUrl = 'http://10.0.2.2:8080/api';
+
+  // NUBE / PRODUCCIÓN:
+  // static const String baseUrl = 'https://api-primerpacialsw.duckdns.org/api';
 
   Future<Map<String, dynamic>> login(String username, String password) async {
     try {

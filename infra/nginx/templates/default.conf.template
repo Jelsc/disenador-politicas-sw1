@@ -2,22 +2,12 @@ server {
     listen 80;
     server_name ${FRONTEND_DOMAIN};
 
-    set $env "${APP_ENV}";
-
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
 
-    # Redirigir a HTTPS solo si estamos en prod, sino sirve normal.
     location / {
-        if ($env = "prod") {
-            return 301 https://$host$request_uri;
-        }
-        proxy_pass http://frontend:4200;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        return 301 https://$host$request_uri;
     }
 }
 
@@ -41,17 +31,12 @@ server {
     listen 80;
     server_name ${API_DOMAIN};
 
-    set $env "${APP_ENV}";
-
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
 
     location / {
-        if ($env = "prod") {
-            return 301 https://$host$request_uri;
-        }
-        return 404;
+        return 301 https://$host$request_uri;
     }
 
     location /api/ {
