@@ -25,6 +25,10 @@ public class User extends AuditableEntity {
 
     private List<String> departmentIds; // References to Departments
 
+    private String name; // Full name, used for CLIENT role
+
+    private String fcmToken; // Firebase Cloud Messaging token for mobile push notifications
+
     private boolean active;
 
     // Constructors
@@ -81,6 +85,22 @@ public class User extends AuditableEntity {
 
     public void setDepartmentIds(List<String> departmentIds) {
         this.departmentIds = departmentIds;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getFcmToken() {
+        return fcmToken;
+    }
+
+    public void setFcmToken(String fcmToken) {
+        this.fcmToken = fcmToken;
     }
 
     public boolean isActive() {

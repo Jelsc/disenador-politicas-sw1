@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { UiNotificationService } from './ui-notification.service';
+import { environment } from '../../../environments/environment';
 
 export interface PolicyNotificationEvent {
   type: 'POLICY_INVITATION';
@@ -23,8 +24,8 @@ export class PolicyNotificationWsService {
     if (this.currentUsername === username && this.socket) return;
     this.disconnect();
     this.currentUsername = username;
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    this.socket = new WebSocket(`${protocol}://localhost:8080/ws/notifications/${username}`);
+    const baseWsUrl = environment.wsUrl.replace('/ws', '');
+    this.socket = new WebSocket(`${baseWsUrl}/ws/notifications/${username}`);
     this.socket.onopen = () => this.connected.set(true);
     this.socket.onclose = () => this.connected.set(false);
     this.socket.onerror = () => this.connected.set(false);

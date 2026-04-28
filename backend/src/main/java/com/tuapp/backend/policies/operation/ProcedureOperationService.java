@@ -2,10 +2,14 @@ package com.tuapp.backend.policies.operation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tuapp.backend.policies.operation.dto.ProcedureTrackingResponse;
 import com.tuapp.backend.policies.application.PolicyService;
 import com.tuapp.backend.policies.domain.Policy;
 import com.tuapp.backend.users.domain.User;
+import com.tuapp.backend.users.domain.Role;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import com.tuapp.backend.users.domain.UserRepository;
+import com.tuapp.backend.shared.infrastructure.notifications.PushNotificationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -26,13 +30,17 @@ public class ProcedureOperationService {
     private final ProcedureMongoRepository procedureRepository;
     private final ProcedureTaskMongoRepository taskRepository;
     private final ObjectMapper objectMapper;
+    private final PasswordEncoder passwordEncoder;
+    private final PushNotificationService pushNotificationService;
 
-    public ProcedureOperationService(PolicyService policyService, UserRepository userRepository, ProcedureMongoRepository procedureRepository, ProcedureTaskMongoRepository taskRepository, ObjectMapper objectMapper) {
+    public ProcedureOperationService(PolicyService policyService, UserRepository userRepository, ProcedureMongoRepository procedureRepository, ProcedureTaskMongoRepository taskRepository, ObjectMapper objectMapper, PasswordEncoder passwordEncoder, PushNotificationService pushNotificationService) {
         this.policyService = policyService;
         this.userRepository = userRepository;
         this.procedureRepository = procedureRepository;
         this.taskRepository = taskRepository;
         this.objectMapper = objectMapper;
+        this.passwordEncoder = passwordEncoder;
+        this.pushNotificationService = pushNotificationService;
     }
 
     public List<Policy> startablePolicies(String username) {
@@ -48,6 +56,36 @@ public class ProcedureOperationService {
         if (!userDepartments(username).contains(startDepartmentId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No podés iniciar este trámite porque empieza en otro departamento.");
         }
+
+        // Manage client
+        String clientId = null;
+        String clientName = request.getClientFullName();
+        String clientCi = request.getClientCi();
+        
+        if (clientCi != null && !clientCi.trim().isEmpty()) {
+            User clientUser = userRepository.findByUsername(clientCi).orElse(null);
+            if (clientUser == null) {
+                // Check email just in case
+                if (request.getClientEmail() != null && !request.getClientEmail().trim().isEmpty()) {
+                    clientUser = userRepository.findByEmail(request.getClientEmail()).orElse(null);
+                }
+            }
+            
+            if (clientUser == null) {
+                // Create new client user
+                clientUser = new User();
+                clientUser.setUsername(clientCi);
+                clientUser.setEmail(request.getClientEmail() != null ? request.getClientEmail() : clientCi + "@cliente.local");
+                clientUser.setPassword(passwordEncoder.encode(clientCi));
+                clientUser.setRoles(List.of(Role.CLIENT));
+                clientUser.setDepartmentIds(List.of());
+                clientUser.setName(clientName);
+                clientUser.setActive(true);
+                clientUser = userRepository.save(clientUser);
+            }
+            clientId = clientUser.getId();
+        }
+
         LocalDateTime now = LocalDateTime.now();
         ProcedureDocument procedure = procedureRepository.save(ProcedureDocument.builder()
                 .policyId(policy.getId())
@@ -55,6 +93,9 @@ public class ProcedureOperationService {
                 .status("OPEN")
                 .createdBy(username)
                 .startDepartmentId(startDepartmentId)
+                .clientId(clientId)
+                .clientName(clientName)
+                .clientCi(clientCi)
                 .values(request.getValues() == null ? new HashMap<>() : request.getValues())
                 .createdAt(now)
                 .updatedAt(now)
@@ -63,6 +104,7 @@ public class ProcedureOperationService {
         if (start != null) activateNext(policy, procedure, start.path("id").asText(), new HashSet<>());
         return procedure;
     }
+
 
     public List<ProcedureTaskDocument> departmentInbox(String username) {
         return taskRepository.findByDepartmentIdInAndStatusOrderByCreatedAtAsc(userDepartments(username), "PENDING");
@@ -99,8 +141,68 @@ public class ProcedureOperationService {
         return saved;
     }
 
-    public List<ProcedureDocument> myProcedures(String username) {
-        return procedureRepository.findByCreatedByOrderByCreatedAtDesc(username);
+    public List<ProcedureTrackingResponse> myProcedures(String username) {
+        return procedureRepository.findByCreatedByOrderByCreatedAtDesc(username).stream()
+                .map(this::toTrackingResponse)
+                .toList();
+    }
+
+    private ProcedureTrackingResponse toTrackingResponse(ProcedureDocument proc) {
+        List<ProcedureTaskDocument> tasks = taskRepository.findByProcedureIdOrderByCreatedAtAsc(proc.getId());
+        
+        long completed = tasks.stream().filter(t -> "COMPLETED".equals(t.getStatus())).count();
+        long total = tasks.size();
+        
+        int progress = 0;
+        if ("COMPLETED".equals(proc.getStatus())) {
+            progress = 100;
+        } else if (total > 0) {
+            progress = (int) Math.min(95, (completed * 100) / (total + 1));
+        }
+
+        List<String> currentDepts = tasks.stream()
+            .filter(t -> !"COMPLETED".equals(t.getStatus()))
+            .map(ProcedureTaskDocument::getDepartmentId)
+            .distinct()
+            .toList();
+
+        List<String> currentTaskNames = tasks.stream()
+            .filter(t -> !"COMPLETED".equals(t.getStatus()))
+            .map(ProcedureTaskDocument::getNodeLabel)
+            .distinct()
+            .toList();
+
+        String observation = "";
+        if ("COMPLETED".equals(proc.getStatus())) {
+            observation = "Trámite finalizado exitosamente.";
+            if (!tasks.isEmpty()) {
+                ProcedureTaskDocument last = tasks.get(tasks.size() - 1);
+                if (last.getFormValues() != null) {
+                    observation = last.getFormValues().values().stream()
+                        .filter(v -> v != null && String.valueOf(v).length() > 10)
+                        .findFirst()
+                        .map(Object::toString)
+                        .orElse(observation);
+                }
+            }
+        }
+
+        return ProcedureTrackingResponse.builder()
+            .id(proc.getId())
+            .policyId(proc.getPolicyId())
+            .policyName(proc.getPolicyName())
+            .clientId(proc.getClientId())
+            .clientName(proc.getClientName())
+            .clientCi(proc.getClientCi())
+            .status(proc.getStatus())
+            .createdAt(proc.getCreatedAt())
+            .updatedAt(proc.getUpdatedAt())
+            .completedAt(proc.getCompletedAt())
+            .progressPercentage(progress)
+            .currentDepartments(currentDepts)
+            .currentTasks(currentTaskNames)
+            .finalObservation(observation)
+            .build();
     }
 
     public List<Map<String, Object>> learningEvents() {
@@ -108,6 +210,20 @@ public class ProcedureOperationService {
                 .limit(500)
                 .map(this::toLearningEvent)
                 .toList();
+    }
+
+    public Map<String, Object> globalStats() {
+        List<ProcedureDocument> all = procedureRepository.findAll();
+        long count = all.stream().filter(p -> "COMPLETED".equals(p.getStatus())).count();
+        double avgHours = all.stream()
+                .filter(p -> "COMPLETED".equals(p.getStatus()) && p.getCreatedAt() != null && p.getCompletedAt() != null)
+                .mapToDouble(p -> Duration.between(p.getCreatedAt(), p.getCompletedAt()).toMinutes() / 60.0)
+                .average()
+                .orElse(0.0);
+        return Map.of(
+                "completedProcedures", count,
+                "avgProcedureHours", avgHours
+        );
     }
 
     private void activateNext(Policy policy, ProcedureDocument procedure, String nodeId, Set<String> visited) {
@@ -144,7 +260,9 @@ public class ProcedureOperationService {
     private void createPendingTask(Policy policy, ProcedureDocument procedure, JsonNode node) {
         String nodeId = node.path("id").asText();
         if (taskRepository.existsByProcedureIdAndNodeId(procedure.getId(), nodeId)) return;
-        taskRepository.save(ProcedureTaskDocument.builder()
+        
+        List<Map<String, Object>> fields = formFields(node);
+        ProcedureTaskDocument task = taskRepository.save(ProcedureTaskDocument.builder()
                 .procedureId(procedure.getId())
                 .policyId(policy.getId())
                 .nodeId(nodeId)
@@ -153,10 +271,51 @@ public class ProcedureOperationService {
                 .taskType(node.path("config").path("taskType").asText("TASK"))
                 .departmentId(node.path("departmentId").asText())
                 .formTitle(node.path("config").path("form").path("title").asText(node.path("label").asText("Formulario")))
-                .formFields(formFields(node))
+                .formFields(fields)
                 .status("PENDING")
                 .createdAt(LocalDateTime.now())
                 .build());
+
+        notifyClientIfApplicable(procedure, task, fields);
+    }
+
+    private void notifyClientIfApplicable(ProcedureDocument procedure, ProcedureTaskDocument task, List<Map<String, Object>> fields) {
+        if (procedure.getClientCi() == null || procedure.getClientCi().isBlank()) return;
+
+        userRepository.findByUsername(procedure.getClientCi()).ifPresent(client -> {
+            String fcmToken = client.getFcmToken();
+            if (fcmToken == null || fcmToken.isBlank()) return;
+
+            // 1. Notificar avance de fase/área
+            pushNotificationService.sendPushNotificationToToken(
+                    fcmToken,
+                    "Avance de Trámite: " + procedure.getPolicyName(),
+                    "Tu trámite ha avanzado a la etapa: " + task.getNodeLabel(),
+                    Map.of("procedureId", procedure.getId(), "type", "STATUS_UPDATE")
+            );
+
+            // 2. Revisar opciones especiales en el formulario (notifyClient o firmas)
+            for (Map<String, Object> field : fields) {
+                boolean requireSignature = "signature".equalsIgnoreCase(String.valueOf(field.get("type")));
+                boolean notifyClient = Boolean.TRUE.equals(field.get("notifyClient"));
+
+                if (requireSignature) {
+                    pushNotificationService.sendPushNotificationToToken(
+                            fcmToken,
+                            "Firma Requerida",
+                            "Se requiere tu firma digital para: " + String.valueOf(field.get("label")),
+                            Map.of("procedureId", procedure.getId(), "type", "SIGNATURE_REQUIRED")
+                    );
+                } else if (notifyClient) {
+                    pushNotificationService.sendPushNotificationToToken(
+                            fcmToken,
+                            "Notificación del Trámite",
+                            "Atención requerida: " + String.valueOf(field.get("label")),
+                            Map.of("procedureId", procedure.getId(), "type", "FIELD_NOTIFICATION")
+                    );
+                }
+            }
+        });
     }
 
     private void closeProcedure(ProcedureDocument procedure, JsonNode end) {

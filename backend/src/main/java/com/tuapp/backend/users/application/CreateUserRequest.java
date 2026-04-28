@@ -11,6 +11,7 @@ public class CreateUserRequest {
     private String password;
     private String role; // ADMIN, DESIGNER, OPERATOR, CLIENT
     private List<String> departmentIds;
+    private String name;
 
     public CreateUserRequest() {}
 
@@ -61,5 +62,13 @@ public class CreateUserRequest {
 
     public void setDepartmentIds(List<String> departmentIds) {
         this.departmentIds = departmentIds;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 }

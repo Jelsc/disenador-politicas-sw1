@@ -1,11 +1,41 @@
 version: '3.8'
 
 services:
+  nginx:
+    image: nginx:alpine
+    container_name: tuapp-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/templates:/etc/nginx/templates:ro
+      - certbot_data:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    environment:
+      - APP_ENV=${APP_ENV}
+      - FRONTEND_DOMAIN=${FRONTEND_DOMAIN}
+      - API_DOMAIN=${API_DOMAIN}
+    depends_on:
+      - frontend
+      - backend
+      - ai-service
+    restart: unless-stopped
+    command: /bin/sh -c "envsubst '$$APP_ENV $$FRONTEND_DOMAIN $$API_DOMAIN' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"
+
+  certbot:
+    image: certbot/certbot
+    container_name: tuapp-certbot
+    volumes:
+      - certbot_data:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    depends_on:
+      - nginx
+
   mongodb:
     image: mongo:latest
     container_name: tuapp-mongodb
-    ports:
-      - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped
@@ -15,8 +45,6 @@ services:
   redis:
     image: redis:alpine
     container_name: tuapp-redis
-    ports:
-      - "6379:6379"
     restart: unless-stopped
 
   ai-service:
@@ -24,8 +52,6 @@ services:
       context: ./services/ai-service
       dockerfile: Dockerfile
     container_name: tuapp-ai-service
-    ports:
-      - "8000:8000"
     restart: unless-stopped
     env_file:
       - .env
@@ -35,12 +61,14 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: tuapp-backend
-    ports:
-      - "8080:8080"
     environment:
       - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/tuapp_db
       - SPRING_REDIS_HOST=redis
       - SPRING_REDIS_PORT=6379
+      - FILE_STORAGE_PATH=/app/uploads
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+    volumes:
+      - ./data/uploads:/app/uploads
     depends_on:
       - mongodb
       - redis
@@ -53,16 +81,24 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: tuapp-frontend
-    ports:
-      - "4200:4200"
     volumes:
       - ./frontend:/app
-      - /app/node_modules # Evita que un node_modules local pise al del contenedor
+      - /app/node_modules
     depends_on:
       - backend
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      - API_URL=${API_URL}
+      - AI_URL=${AI_URL}
+      - WS_URL=${WS_URL}
+    # Reemplazamos el env.template.js al vuelo antes de iniciar angular
+    command: >
+      /bin/sh -c "
+      apk add --no-cache gettext && 
+      envsubst < /app/src/assets/env.template.js > /app/src/assets/env.js &&
+      npx ng serve --host 0.0.0.0 --poll 2000 --disable-host-check"
 
 volumes:
   mongodb_data:
+  certbot_data:
+  certbot_www:

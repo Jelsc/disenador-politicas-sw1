@@ -12,16 +12,18 @@ public class UserResponse {
     private String role;
     private List<String> departmentIds;
     private boolean active;
+    private String name;
 
     public UserResponse() {}
 
-    public UserResponse(String id, String username, String email, String role, List<String> departmentIds, boolean active) {
+    public UserResponse(String id, String username, String email, String role, List<String> departmentIds, boolean active, String name) {
         this.id = id;
         this.username = username;
         this.email = email;
         this.role = role;
         this.departmentIds = departmentIds;
         this.active = active;
+        this.name = name;
     }
 
     // Getters & Setters
@@ -71,5 +73,13 @@ public class UserResponse {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 }

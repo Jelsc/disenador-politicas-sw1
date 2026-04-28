@@ -214,8 +214,7 @@ export class UserManagementComponent implements OnInit {
   readonly roles = [
     { value: 'ADMIN' as UserRole, label: 'Administrador' },
     { value: 'DESIGNER' as UserRole, label: 'Diseñador' },
-    { value: 'OPERATOR' as UserRole, label: 'Funcionario' },
-    { value: 'CLIENT' as UserRole, label: 'Cliente' }
+    { value: 'OPERATOR' as UserRole, label: 'Funcionario' }
   ];
 
   readonly assignableRoles = this.roles;
@@ -246,7 +245,7 @@ export class UserManagementComponent implements OnInit {
     username: ['', [Validators.required]],
     email: ['', [Validators.required, Validators.email]],
     password: ['', [Validators.minLength(6)]],
-    role: ['CLIENT' as UserRole, [Validators.required]],
+    role: ['OPERATOR' as UserRole, [Validators.required]],
     departmentIds: this.fb.control<string[]>([]),
     active: [true]
   });
@@ -291,7 +290,7 @@ export class UserManagementComponent implements OnInit {
   openCreatePanel(): void {
     this.editingUserId.set(null);
     this.errorMessage.set('');
-    this.userForm.reset({ username: '', email: '', password: '', role: 'CLIENT', departmentIds: [], active: true });
+    this.userForm.reset({ username: '', email: '', password: '', role: 'OPERATOR', departmentIds: [], active: true });
     this.userForm.controls.password.addValidators([Validators.required]);
     this.userForm.controls.password.updateValueAndValidity();
     this.panelOpen.set(true);

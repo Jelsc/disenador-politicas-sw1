@@ -1,5 +1,6 @@
 package com.tuapp.backend.policies.operation;
 
+import com.tuapp.backend.policies.operation.dto.ProcedureTrackingResponse;
 import com.tuapp.backend.policies.domain.Policy;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +31,7 @@ public class ProcedureOperationController {
     }
 
     @GetMapping("/procedures/mine")
-    public ResponseEntity<List<ProcedureDocument>> myProcedures(Authentication authentication) {
+    public ResponseEntity<List<ProcedureTrackingResponse>> myProcedures(Authentication authentication) {
         return ResponseEntity.ok(service.myProcedures(username(authentication)));
     }
 

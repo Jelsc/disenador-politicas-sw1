@@ -23,6 +23,9 @@ public class ProcedureDocument {
     private String status;
     private String createdBy;
     private String startDepartmentId;
+    private String clientId;
+    private String clientName;
+    private String clientCi;
     private Map<String, Object> values;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

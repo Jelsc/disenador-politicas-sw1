@@ -7,6 +7,7 @@ import { roleGuard } from './core/guards/role.guard';
 import { PolicyListComponent } from './policies/components/policy-list/policy-list.component';
 import { PolicyFormComponent } from './policies/components/policy-form/policy-form.component';
 import { UserManagementComponent } from './admin/components/users/user-management.component';
+import { ClientManagementComponent } from './admin/components/users/client-management.component';
 import { DepartmentManagementComponent } from './admin/components/departments/department-management.component';
 import { ProcedureSimulatorComponent } from './execution/components/procedure-simulator/procedure-simulator.component';
 
@@ -33,7 +34,12 @@ export const routes: Routes = [
         component: DepartmentManagementComponent,
         canActivate: [roleGuard(['ADMIN'])]
       },
-      
+      {
+        path: 'clients',
+        component: ClientManagementComponent,
+        canActivate: [roleGuard(['ADMIN'])]
+      },
+
       // Policies Routes
       {
         path: 'policies',

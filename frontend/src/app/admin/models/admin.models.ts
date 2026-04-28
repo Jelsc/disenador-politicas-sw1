@@ -3,6 +3,7 @@ export type UserRole = 'ADMIN' | 'DESIGNER' | 'OPERATOR' | 'CLIENT';
 export interface ManagedUser {
   id: string;
   username: string;
+  name?: string;
   email: string;
   role: UserRole;
   departmentIds: string[];

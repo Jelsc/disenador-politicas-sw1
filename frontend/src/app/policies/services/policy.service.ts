@@ -11,11 +11,13 @@ import {
   PolicyChangeLog
 } from '../models/policy.model';
 
+import { environment } from '../../../environments/environment';
+
 @Injectable({
   providedIn: 'root'
 })
 export class PolicyService {
-  private apiUrl = 'http://localhost:8080/api/policies';
+  private apiUrl = `${environment.apiUrl}/policies`;
 
   constructor(private http: HttpClient) {}
 

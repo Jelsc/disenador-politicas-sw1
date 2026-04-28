@@ -69,6 +69,11 @@ public class CreateUserUseCase implements UseCase<CreateUserRequest, UserRespons
         user.setRoles(Collections.singletonList(selectedRole));
         user.setDepartmentIds(departmentIds);
         user.setActive(true);
+        
+        // Set name for CLIENT role
+        if ("CLIENT".equalsIgnoreCase(request.getRole()) && request.getName() != null) {
+            user.setName(request.getName());
+        }
 
         // Save user
         User savedUser = userRepository.save(user);
@@ -80,7 +85,8 @@ public class CreateUserUseCase implements UseCase<CreateUserRequest, UserRespons
                 savedUser.getEmail(),
                 (savedUser.getRoles() != null && !savedUser.getRoles().isEmpty()) ? savedUser.getRoles().get(0).name() : null,
                 savedUser.getDepartmentIds() != null ? savedUser.getDepartmentIds() : Collections.emptyList(),
-                savedUser.isActive()
+                savedUser.isActive(),
+                savedUser.getName()
         );
     }
 

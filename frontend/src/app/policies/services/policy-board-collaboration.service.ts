@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { environment } from '../../../environments/environment';
 
 export interface BoardCollaborationEvent {
   type: 'BOARD_SYNC' | 'PRESENCE_JOIN' | 'PRESENCE_LEAVE';
@@ -19,8 +20,8 @@ export class PolicyBoardCollaborationService {
 
   connect(policyId: string): void {
     this.disconnect();
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    this.socket = new WebSocket(`${protocol}://localhost:8080/ws/policies/${policyId}`);
+    const baseWsUrl = environment.wsUrl.replace('/ws', '');
+    this.socket = new WebSocket(`${baseWsUrl}/ws/policies/${policyId}`);
     this.socket.onopen = () => {
       this.connected.set(true);
       this.sendPresence(policyId, 'PRESENCE_JOIN');

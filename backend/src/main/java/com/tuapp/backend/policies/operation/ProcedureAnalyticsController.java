@@ -23,4 +23,9 @@ public class ProcedureAnalyticsController {
     public ResponseEntity<List<Map<String, Object>>> learningEvents() {
         return ResponseEntity.ok(service.learningEvents());
     }
+
+    @GetMapping("/stats")
+    public ResponseEntity<Map<String, Object>> stats() {
+        return ResponseEntity.ok(service.globalStats());
+    }
 }

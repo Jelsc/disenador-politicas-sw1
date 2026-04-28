@@ -7,13 +7,17 @@ export interface ProcedureTicket {
   id: string;
   policyId: string;
   policyName: string;
+  clientId?: string;
+  clientName?: string;
+  clientCi?: string;
   status: string;
-  createdBy: string;
-  startDepartmentId: string;
-  values?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  progressPercentage?: number;
+  currentDepartments?: string[];
+  currentTasks?: string[];
+  finalObservation?: string;
 }
 
 export interface ProcedureTask {
@@ -55,19 +59,21 @@ export interface OperationLearningEvent {
   waitingSignatureHours?: number;
   completed?: boolean;
 }
+import { environment } from '../../../environments/environment';
 
-@Injectable({ providedIn: 'root' })
+@Injectable({
+  providedIn: 'root'
+})
 export class OperationService {
-  private readonly apiUrl = 'http://localhost:8080/api/operations';
-
+  private readonly apiUrl = `${environment.apiUrl}/operations`;
   constructor(private http: HttpClient) {}
 
   getStartablePolicies(): Observable<Policy[]> {
     return this.http.get<Policy[]>(`${this.apiUrl}/startable-policies`);
   }
 
-  createProcedure(policyId: string, values: Record<string, any> = {}): Observable<ProcedureTicket> {
-    return this.http.post<ProcedureTicket>(`${this.apiUrl}/procedures`, { policyId, values });
+  createProcedure(policyId: string, clientData?: { clientFullName: string; clientEmail: string; clientCi: string }, values: Record<string, any> = {}): Observable<ProcedureTicket> {
+    return this.http.post<ProcedureTicket>(`${this.apiUrl}/procedures`, { policyId, values, ...clientData });
   }
 
   getMyProcedures(): Observable<ProcedureTicket[]> {
@@ -86,11 +92,24 @@ export class OperationService {
     return this.http.get<OperationLearningEvent[]>(`${this.apiUrl}/analytics/learning-events`);
   }
 
+  getGlobalStats(): Observable<{ completedProcedures: number; avgProcedureHours: number }> {
+    return this.http.get<{ completedProcedures: number; avgProcedureHours: number }>(`${this.apiUrl}/analytics/stats`);
+  }
+
   acceptTask(taskId: string): Observable<ProcedureTask> {
     return this.http.post<ProcedureTask>(`${this.apiUrl}/tasks/${taskId}/accept`, {});
   }
 
   completeTask(taskId: string, values: Record<string, any> = {}): Observable<ProcedureTask> {
     return this.http.post<ProcedureTask>(`${this.apiUrl}/tasks/${taskId}/complete`, { values });
+  }
+
+  uploadFile(file: File): Observable<{ fileName: string; fileDownloadUri: string; fileType: string; size: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<{ fileName: string; fileDownloadUri: string; fileType: string; size: string }>(
+      `${environment.apiUrl}/files/upload`, 
+      formData
+    );
   }
 }

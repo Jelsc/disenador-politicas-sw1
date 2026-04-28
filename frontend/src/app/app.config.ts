@@ -36,7 +36,8 @@ import {
   lucideCopy,
   lucideRefreshCw,
   lucideCircleAlert,
-  lucideWorkflow
+  lucideWorkflow,
+  lucideUserCircle
 } from '@ng-icons/lucide';
 
 export const appConfig: ApplicationConfig = {
@@ -76,7 +77,8 @@ export const appConfig: ApplicationConfig = {
       lucideCopy,
       lucideRefreshCw,
       lucideCircleAlert,
-      lucideWorkflow
+      lucideWorkflow,
+      lucideUserCircle
     })
   ]
 };

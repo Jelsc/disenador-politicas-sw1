@@ -29,17 +29,47 @@ import { Policy } from '../../../policies/models/policy.model';
               <small>v{{ policy.version }} · {{ policy.status }}</small>
               <p>{{ policy.description }}</p>
             </div>
-            <button class="btn primary" (click)="createProcedure(policy)" [disabled]="loading()">Crear ticket</button>
+            <button class="btn primary" (click)="openCreateModal(policy)" [disabled]="loading()">Crear ticket</button>
           </div>
           <p class="muted" *ngIf="!loading() && startablePolicies().length === 0">No tenés políticas publicadas que empiecen en tu departamento.</p>
         </article>
 
         <article class="panel">
-          <h3>Mis trámites creados</h3>
-          <div class="ticket" *ngFor="let item of myProcedures()">
-            <strong>{{ item.policyName }}</strong>
-            <span>{{ item.status }}</span>
-            <small>{{ item.createdAt | date:'short' }}</small>
+          <h3>Mis trámites en curso</h3>
+          <div class="ticket-pro" *ngFor="let item of myProcedures()">
+            <div class="ticket-pro-header">
+              <div class="ticket-pro-title">
+                <strong>{{ item.policyName }}</strong>
+                <small class="ticket-pro-id">#{{ item.id | slice:-6 | uppercase }} · {{ item.clientName || 'Cliente' }} ({{ item.clientCi }})</small>
+              </div>
+              <span class="ticket-pro-badge" [class.completed]="item.status === 'COMPLETED'">{{ item.status }}</span>
+            </div>
+            
+            <div class="ticket-pro-progress">
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" [style.width.%]="item.progressPercentage || 0" [class.completed]="item.status === 'COMPLETED'"></div>
+              </div>
+              <div class="progress-stats">
+                <small>{{ item.progressPercentage || 0 }}% Completado</small>
+                <small>{{ item.createdAt | date:'short' }}</small>
+              </div>
+            </div>
+            
+            <div class="ticket-pro-details" *ngIf="item.status !== 'COMPLETED'">
+              <div class="detail-row" *ngIf="item.currentTasks?.length">
+                <span class="detail-label">Tarea actual:</span>
+                <span class="detail-value">{{ item.currentTasks?.join(', ') }}</span>
+              </div>
+              <div class="detail-row" *ngIf="item.currentDepartments?.length">
+                <span class="detail-label">Departamento:</span>
+                <span class="detail-value">{{ item.currentDepartments?.join(', ') }}</span>
+              </div>
+            </div>
+
+            <div class="ticket-pro-result" *ngIf="item.status === 'COMPLETED' && item.finalObservation">
+              <span class="result-label">Resultado Final:</span>
+              <p class="result-value">{{ item.finalObservation }}</p>
+            </div>
           </div>
           <p class="muted" *ngIf="!loading() && myProcedures().length === 0">Aún no creaste trámites.</p>
         </article>
@@ -71,6 +101,38 @@ import { Policy } from '../../../policies/models/policy.model';
             <button class="btn primary" (click)="openTask(task)">Abrir formulario</button>
           </div>
           <p class="muted" *ngIf="!loading() && myTasks().length === 0">No tenés tareas aceptadas.</p>
+        </article>
+      </section>
+
+      <section class="task-modal-backdrop" *ngIf="creatingPolicy() as p" (click)="closeCreateModal()">
+        <article class="task-modal create-modal" (click)="$event.stopPropagation()">
+          <header class="task-modal-header">
+            <div>
+              <small>Nuevo Trámite</small>
+              <h3>{{ p.name }}</h3>
+              <p class="muted">Ingresá los datos del cliente para asociar este ticket.</p>
+            </div>
+            <button class="modal-close" type="button" (click)="closeCreateModal()">×</button>
+          </header>
+          <div class="task-modal-body">
+            <div class="field">
+              <label>Nombre Completo *</label>
+              <input type="text" [(ngModel)]="clientForm.fullName" placeholder="Ej. Juan Pérez" />
+            </div>
+            <div class="field">
+              <label>Carnet de Identidad (CI) *</label>
+              <input type="text" [(ngModel)]="clientForm.ci" placeholder="Ej. 1234567" />
+              <small class="muted">El CI se usará como usuario y contraseña si el cliente es nuevo.</small>
+            </div>
+            <div class="field">
+              <label>Correo Electrónico *</label>
+              <input type="email" [(ngModel)]="clientForm.email" placeholder="Ej. juan@correo.com" />
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn" (click)="closeCreateModal()">Cancelar</button>
+            <button class="btn primary" (click)="submitCreateProcedure()">Crear ticket</button>
+          </div>
         </article>
       </section>
 
@@ -107,7 +169,7 @@ import { Policy } from '../../../policies/models/policy.model';
             <label class="check" *ngIf="field.type === 'CHECKBOX'"><input type="checkbox" [ngModel]="fieldValue(task.id, field.id)" (ngModelChange)="setFieldValue(task.id, field.id, $event)" /> Confirmado</label>
             <input *ngIf="field.type === 'FILE'" type="file" (change)="setFileValue(task.id, field.id, $event)" />
             <button class="btn" *ngIf="field.type === 'SIGNATURE'" (click)="setFieldValue(task.id, field.id, 'FIRMA_TOUCH_SOLICITADA')">Solicitar firma al cliente</button>
-            <small class="muted" *ngIf="field.type === 'FILE' && fieldValue(task.id, field.id)">Archivo: {{ fileLabel(task.id, field.id) }}</small>
+            <small class="muted" *ngIf="field.type === 'FILE' && fieldValue(task.id, field.id)">Archivo: {{ fileLabel(task.id, field.id) }} <a *ngIf="fieldValue(task.id, field.id)?.url" [href]="fieldValue(task.id, field.id).url" target="_blank" class="download-link">Descargar</a></small>
             <small class="muted" *ngIf="field.type === 'SIGNATURE' && fieldValue(task.id, field.id)">Firma registrada/solicitada.</small>
           </div>
           </div>
@@ -128,10 +190,29 @@ import { Policy } from '../../../policies/models/policy.model';
     p { margin: 0 0 8px; color: var(--color-text-muted); }
     .ops-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
     .ops-grid.single { grid-template-columns: minmax(0, 1fr); }
-    .policy-card, .task-card, .ticket { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 12px; margin-top: 10px; border: 1px solid var(--color-border); border-radius: 12px; background: #f8fafc; }
+    .ticket-pro { display: flex; flex-direction: column; gap: 12px; padding: 16px; margin-top: 14px; border: 1px solid var(--color-border); border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+    .ticket-pro-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .ticket-pro-title { display: flex; flex-direction: column; gap: 4px; }
+    .ticket-pro-title strong { font-size: 15px; color: var(--color-text-main); }
+    .ticket-pro-id { font-size: 11px; color: var(--color-text-muted); letter-spacing: 1px; }
+    .ticket-pro-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 4px 8px; border-radius: 99px; background: var(--color-primary-soft); color: var(--color-primary); }
+    .ticket-pro-badge.completed { background: #dcfce7; color: #166534; }
+    .ticket-pro-progress { display: flex; flex-direction: column; gap: 6px; }
+    .progress-bar-bg { width: 100%; height: 6px; background: #f1f5f9; border-radius: 99px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: var(--color-primary); border-radius: 99px; transition: width 0.5s ease-out; }
+    .progress-bar-fill.completed { background: #16a34a; }
+    .progress-stats { display: flex; justify-content: space-between; color: var(--color-text-muted); font-size: 12px; font-weight: 500; }
+    .ticket-pro-details { display: flex; flex-direction: column; gap: 4px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--color-border); }
+    .detail-row { display: flex; gap: 6px; font-size: 13px; }
+    .detail-label { color: var(--color-text-muted); font-weight: 500; }
+    .detail-value { color: var(--color-text-main); font-weight: 600; }
+    .ticket-pro-result { display: flex; flex-direction: column; gap: 6px; padding: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; }
+    .result-label { font-size: 12px; font-weight: 700; color: #166534; text-transform: uppercase; }
+    .result-value { margin: 0; font-size: 13px; color: #15803d; line-height: 1.4; }
     .task-card.selected { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-soft); }
     .task-modal-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15, 23, 42, .38); backdrop-filter: blur(2px); }
     .task-modal { width: min(820px, 100%); max-height: 88vh; display: flex; flex-direction: column; background: #fff; border: 1px solid rgba(203,213,225,.85); border-radius: 18px; box-shadow: 0 24px 70px rgba(15,23,42,.25); overflow: hidden; }
+    .task-modal.create-modal { width: min(480px, 100%); }
     .task-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid rgba(226,232,240,.9); background: #f8fafc; }
     .task-modal-header h3 { margin-bottom: 4px; }
     .modal-close { width: 34px; height: 34px; border: 1px solid var(--color-border); border-radius: 999px; background: #fff; cursor: pointer; font-size: 22px; line-height: 1; color: var(--color-text-muted); }
@@ -149,6 +230,8 @@ import { Policy } from '../../../policies/models/policy.model';
     .btn { border: 1px solid var(--color-border); border-radius: 8px; padding: 9px 12px; background: #fff; cursor: pointer; font-weight: 700; }
     .btn.primary { border: 0; background: var(--color-primary); color: #fff; }
     .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .download-link { color: var(--color-primary); text-decoration: none; font-weight: 600; margin-left: 8px; }
+    .download-link:hover { text-decoration: underline; }
   `]
 })
 export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
@@ -159,6 +242,12 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
   departmentInbox = signal<ProcedureTask[]>([]);
   myTasks = signal<ProcedureTask[]>([]);
   selectedTask = signal<ProcedureTask | null>(null);
+  creatingPolicy = signal<Policy | null>(null);
+  clientForm = {
+    fullName: '',
+    email: '',
+    ci: ''
+  };
   taskFormValues: Record<string, Record<string, any>> = {};
   private voiceRecognition: any;
 
@@ -195,10 +284,39 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
     this.operations.getMyTasks().subscribe({ next: data => { data.forEach(task => this.ensureTaskValues(task)); this.myTasks.set(data); this.loading.set(false); }, error: () => { this.myTasks.set([]); this.loading.set(false); } });
   }
 
-  createProcedure(policy: Policy): void {
+  openCreateModal(policy: Policy): void {
     if (!policy.id) return;
+    this.creatingPolicy.set(policy);
+    this.clientForm = { fullName: '', email: '', ci: '' };
+  }
+
+  closeCreateModal(): void {
+    this.creatingPolicy.set(null);
+  }
+
+  submitCreateProcedure(): void {
+    const policy = this.creatingPolicy();
+    if (!policy?.id) return;
+    if (!this.clientForm.ci || !this.clientForm.fullName || !this.clientForm.email) {
+      alert('Por favor, complete todos los campos del cliente.');
+      return;
+    }
+    
     this.loading.set(true);
-    this.operations.createProcedure(policy.id).subscribe({ next: () => this.loadAll(), error: () => this.loading.set(false) });
+    this.operations.createProcedure(
+      policy.id,
+      {
+        clientFullName: this.clientForm.fullName,
+        clientEmail: this.clientForm.email,
+        clientCi: this.clientForm.ci
+      }
+    ).subscribe({ 
+      next: () => {
+        this.closeCreateModal();
+        this.loadAll();
+      }, 
+      error: () => this.loading.set(false) 
+    });
   }
 
   acceptTask(taskId: string): void {
@@ -241,12 +359,40 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
   setFileValue(taskId: string, fieldId: string, event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
-    this.setFieldValue(taskId, fieldId, file ? { name: file.name, size: file.size, type: file.type, lastModified: file.lastModified } : '');
+    if (!file) {
+      this.setFieldValue(taskId, fieldId, '');
+      return;
+    }
+    
+    this.setFieldValue(taskId, fieldId, { loading: true, name: file.name });
+    
+    this.operations.uploadFile(file).subscribe({
+      next: (res) => {
+        this.setFieldValue(taskId, fieldId, {
+          name: res.fileName,
+          originalName: file.name,
+          url: res.fileDownloadUri,
+          size: file.size,
+          type: res.fileType
+        });
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        alert('Error al subir el archivo');
+        this.setFieldValue(taskId, fieldId, '');
+        this.cdr.detectChanges();
+      }
+    });
   }
 
   fileLabel(taskId: string, fieldId: string): string {
     const value = this.fieldValue(taskId, fieldId);
-    return typeof value === 'object' && value?.name ? `${value.name} (${Math.round((value.size || 0) / 1024)} KB)` : String(value || '');
+    if (!value) return '';
+    if (value.loading) return `Subiendo ${value.name}...`;
+    if (typeof value === 'object' && value?.originalName) {
+      return `${value.originalName} (${Math.round((value.size || 0) / 1024)} KB) - Subido ✅`;
+    }
+    return String(value || '');
   }
 
   isOptionChecked(taskId: string, fieldId: string, option: string): boolean {

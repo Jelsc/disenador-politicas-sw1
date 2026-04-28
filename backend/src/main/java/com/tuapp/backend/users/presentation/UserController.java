@@ -11,6 +11,8 @@ import com.tuapp.backend.users.domain.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -22,7 +24,6 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/users")
-@CrossOrigin(origins = {"http://localhost:4200", "http://localhost:80"})
 public class UserController {
 
     private final CreateUserUseCase createUserUseCase;
@@ -161,6 +162,24 @@ public class UserController {
         return ResponseEntity.ok(toResponse(savedUser));
     }
 
+    /**
+     * POST /api/users/me/fcm-token: Update current user's FCM token for push notifications
+     */
+    @PostMapping("/me/fcm-token")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> updateFcmToken(@RequestBody FcmTokenRequest request) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String currentUsername = auth.getName();
+
+        return userRepository.findByUsername(currentUsername)
+                .map(user -> {
+                    user.setFcmToken(request.getToken());
+                    userRepository.save(user);
+                    return ResponseEntity.ok().build();
+                })
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
+    }
+
     private List<String> normalizeDepartmentIds(Role selectedRole, List<String> departmentIds) {
         List<String> normalizedDepartmentIds = new ArrayList<>();
 
@@ -196,8 +215,24 @@ public class UserController {
                 user.getEmail(),
                 (user.getRoles() != null && !user.getRoles().isEmpty()) ? user.getRoles().get(0).name() : null,
                 user.getDepartmentIds() != null ? user.getDepartmentIds() : Collections.emptyList(),
-                user.isActive()
+                user.isActive(),
+                user.getName()
         );
+    }
+
+    /**
+     * DTO for FCM Token
+     */
+    static class FcmTokenRequest {
+        private String token;
+
+        public String getToken() {
+            return token;
+        }
+
+        public void setToken(String token) {
+            this.token = token;
+        }
     }
 
     /**

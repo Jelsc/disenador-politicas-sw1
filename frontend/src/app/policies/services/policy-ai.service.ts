@@ -41,11 +41,13 @@ export interface AiExecutionLearningEvent {
   waitingSignatureHours?: number;
   completed?: boolean;
 }
+import { environment } from '../../../environments/environment';
 
-@Injectable({ providedIn: 'root' })
+@Injectable({
+  providedIn: 'root'
+})
 export class PolicyAiService {
-  private readonly apiUrl = 'http://localhost:8000';
-
+  private readonly apiUrl = environment.aiUrl;
   constructor(private http: HttpClient) {}
 
   simulate(policyName: string, rules: any): Observable<AiSimulationReport> {
