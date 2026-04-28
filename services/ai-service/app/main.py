@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 from collections import Counter, defaultdict, deque
+import json
+import os
 import re
 from time import perf_counter
 from typing import Any, Literal
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -14,6 +17,11 @@ from pydantic import BaseModel, Field
 app = FastAPI(title="Policy Design AI Service", version="1.1.0")
 
 LEARNING_STORE: dict[str, list[dict[str, Any]]] = defaultdict(list)
+AI_PROVIDER = os.getenv("AI_PROVIDER", "heuristic").strip().lower()
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct")
+OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "45"))
+AI_NEURAL_MAX_RULE_NODES = int(os.getenv("AI_NEURAL_MAX_RULE_NODES", "80"))
 GENERIC_MATCH_TOKENS = {
     "flujo", "flujos", "tarea", "tareas", "paso", "pasos", "revision", "revisiones",
     "aprobacion", "aprobaciones", "paralelo", "paralela", "simultaneo", "simultanea",
@@ -225,9 +233,11 @@ def assistant(request: AssistantRequest) -> AssistantResponse:
 
     has_existing_flow = bool(rules["nodes"])
     wants_new_flow = wants_flow_generation(prompt) and (not has_existing_flow or "desde cero" in prompt or "reemplaza" in prompt)
+    neural_response = neural_assistant_response(request, simulation)
 
     if has_existing_flow and not wants_new_flow:
-        return collaborate_existing_flow(request, prompt, simulation)
+        heuristic_response = collaborate_existing_flow(request, prompt, simulation)
+        return merge_neural_with_heuristic(neural_response, heuristic_response)
 
     if wants_new_flow:
         missing = missing_departments_in_prompt(request.rules, prompt)
@@ -243,21 +253,131 @@ def assistant(request: AssistantRequest) -> AssistantResponse:
                 recommendations=["Abrí Departamentos y agregá los carriles que van a participar.", "Después pedime el flujo de nuevo por texto o voz."],
             )
         return AssistantResponse(
-            answer="Te preparé un borrador con los departamentos disponibles para este diseño.",
-            recommendations=["Aplicá el diagrama sugerido solo si querés reemplazar la pizarra actual.", "Después corré Simular para validar campos, decisiones y riesgos."],
+            answer=neural_response.answer if neural_response else "Te preparé un borrador con los departamentos disponibles para este diseño.",
+            recommendations=(neural_response.recommendations if neural_response else []) + ["Aplicá el diagrama sugerido solo si querés reemplazar la pizarra actual.", "Después corré Simular para validar campos, decisiones y riesgos."],
             suggestedRules=suggested,
         )
 
     if any(word in prompt for word in ["decision", "decisión", "rama", "condicion", "condición"]):
-        return AssistantResponse(
+        heuristic_response = AssistantResponse(
             answer="Para decisiones robustas, usá campos Resultado/Dictamen o Selección única marcados como 'Usar para decisión'. Cada decisión necesita mínimo dos salidas y camino por defecto.",
             recommendations=["Marcá el campo evaluado dentro del formulario de una tarea anterior.", "Configurá ramas explícitas: Aprobado, Observado, Rechazado.", "No pongas formularios en Decisión; la Decisión solo evalúa datos."],
         )
+        return merge_neural_with_heuristic(neural_response, heuristic_response)
 
-    return AssistantResponse(
+    heuristic_response = AssistantResponse(
         answer=local_assistant_answer(prompt, simulation),
         recommendations=simulation.recommendations + local_prompt_recommendations(prompt, request.rules),
     )
+    return merge_neural_with_heuristic(neural_response, heuristic_response)
+
+
+def neural_assistant_response(request: AssistantRequest, simulation: SimulationReport) -> AssistantResponse | None:
+    if AI_PROVIDER != "ollama":
+        return None
+
+    rules = normalize_rules(request.rules)
+    if len(rules["nodes"]) > AI_NEURAL_MAX_RULE_NODES:
+        return AssistantResponse(
+            answer="El asistente neuronal está desactivado para este flujo porque el diagrama es grande. Usé validación determinística para evitar respuestas lentas en esta VM.",
+            recommendations=["Dividí el flujo en versiones más pequeñas o subprocesos para mejorar el razonamiento local."],
+        )
+
+    system_prompt = (
+        "Sos un asistente experto en diseño de trámites públicos, BPMN liviano y formularios operativos. "
+        "Respondé en español claro. No inventes departamentos: solo usá los que aparecen en el JSON. "
+        "No devuelvas markdown. Devolvé estrictamente JSON con esta forma: "
+        "{\"answer\": string, \"recommendations\": string[]} . "
+        "Tu trabajo es razonar y explicar; las modificaciones del diagrama las valida el motor determinístico."
+    )
+    context = {
+        "policyName": request.policyName,
+        "prompt": request.prompt,
+        "history": request.history[-6:],
+        "simulation": simulation.dict(),
+        "rulesSummary": summarize_rules_for_llm(rules),
+    }
+
+    try:
+        with httpx.Client(timeout=OLLAMA_TIMEOUT_SECONDS) as client:
+            response = client.post(
+                f"{OLLAMA_URL}/api/chat",
+                json={
+                    "model": OLLAMA_MODEL,
+                    "stream": False,
+                    "options": {"temperature": 0.2, "num_ctx": 4096},
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+                    ],
+                },
+            )
+            response.raise_for_status()
+        content = response.json().get("message", {}).get("content", "").strip()
+        data = parse_llm_json(content)
+        answer = str(data.get("answer") or "").strip()
+        recommendations = [str(item).strip() for item in data.get("recommendations", []) if str(item).strip()]
+        if not answer:
+            return None
+        return AssistantResponse(answer=answer, recommendations=recommendations[:8])
+    except Exception as exc:
+        return AssistantResponse(
+            answer="El modelo neuronal local no respondió a tiempo o no está descargado. Usé el motor heurístico seguro para continuar.",
+            recommendations=[
+                f"Verificá Ollama y el modelo: {OLLAMA_MODEL}.",
+                "En el servidor corré: docker exec -it tuapp-ollama ollama pull qwen2.5:3b-instruct",
+                f"Detalle técnico: {type(exc).__name__}",
+            ],
+        )
+
+
+def merge_neural_with_heuristic(neural: AssistantResponse | None, heuristic: AssistantResponse) -> AssistantResponse:
+    if not neural:
+        return heuristic
+    recommendations = list(dict.fromkeys((neural.recommendations or []) + (heuristic.recommendations or [])))[:8]
+    return AssistantResponse(
+        answer=neural.answer,
+        recommendations=recommendations,
+        suggestedRules=heuristic.suggestedRules,
+    )
+
+
+def parse_llm_json(content: str) -> dict[str, Any]:
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if not match:
+            return {}
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return {}
+
+
+def summarize_rules_for_llm(rules: dict[str, Any]) -> dict[str, Any]:
+    nodes = list(rules.get("nodes") or [])
+    connectors = list(rules.get("connectors") or [])
+    departments = list(rules.get("departments") or [])
+    tasks = [node for node in nodes if node.get("type") == "TASK"]
+    return {
+        "departments": [{"id": dep.get("id"), "name": dep.get("name"), "active": dep.get("active", True)} for dep in departments],
+        "nodesCount": len(nodes),
+        "connectorsCount": len(connectors),
+        "tasks": [
+            {
+                "id": task.get("id"),
+                "label": task.get("label"),
+                "departmentId": task.get("departmentId"),
+                "taskType": (task.get("config") or {}).get("taskType"),
+                "fields": [
+                    {"id": field.get("id"), "type": field.get("type"), "label": field.get("label"), "required": field.get("required")}
+                    for field in (((task.get("config") or {}).get("form") or {}).get("fields") or [])
+                ],
+            }
+            for task in tasks[:30]
+        ],
+    }
 
 
 @app.post("/learn/execution")

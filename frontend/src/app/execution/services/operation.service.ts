@@ -38,6 +38,20 @@ export interface ProcedureTask {
   completedAt?: string;
 }
 
+export interface OperatorDepartment {
+  id: string;
+  name: string;
+  description?: string;
+  active?: boolean;
+}
+
+export interface OperatorContext {
+  username: string;
+  name: string;
+  roles: string[];
+  departments: OperatorDepartment[];
+}
+
 export interface OperationTaskField {
   id: string;
   type: 'SHORT_TEXT' | 'LONG_TEXT' | 'NUMBER' | 'DATE' | 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'CHECKBOX' | 'FILE' | 'RESULT' | 'SIGNATURE';
@@ -45,6 +59,15 @@ export interface OperationTaskField {
   required?: boolean;
   options?: string[];
   placeholder?: string;
+  visibleToClient?: boolean;
+  notifyClient?: boolean;
+  voiceInputEnabled?: boolean;
+  usedForDecision?: boolean;
+  allowedFormats?: string[];
+  maxFiles?: number;
+  maxFileSizeMb?: number;
+  signatureMessage?: string;
+  signatureDeadlineHours?: number;
 }
 
 export interface OperationLearningEvent {
@@ -70,6 +93,10 @@ export class OperationService {
 
   getStartablePolicies(): Observable<Policy[]> {
     return this.http.get<Policy[]>(`${this.apiUrl}/startable-policies`);
+  }
+
+  getCurrentUserContext(): Observable<OperatorContext> {
+    return this.http.get<OperatorContext>(`${this.apiUrl}/me/context`);
   }
 
   createProcedure(policyId: string, clientData?: { clientFullName: string; clientEmail: string; clientCi: string }, values: Record<string, any> = {}): Observable<ProcedureTicket> {
@@ -104,9 +131,11 @@ export class OperationService {
     return this.http.post<ProcedureTask>(`${this.apiUrl}/tasks/${taskId}/complete`, { values });
   }
 
-  uploadFile(file: File): Observable<{ fileName: string; fileDownloadUri: string; fileType: string; size: string }> {
+  uploadFile(file: File, field?: OperationTaskField): Observable<{ fileName: string; fileDownloadUri: string; fileType: string; size: string }> {
     const formData = new FormData();
     formData.append('file', file);
+    if (field?.allowedFormats?.length) formData.append('allowedFormats', field.allowedFormats.join(','));
+    if (field?.maxFileSizeMb) formData.append('maxFileSizeMb', String(field.maxFileSizeMb));
     return this.http.post<{ fileName: string; fileDownloadUri: string; fileType: string; size: string }>(
       `${environment.apiUrl}/files/upload`, 
       formData

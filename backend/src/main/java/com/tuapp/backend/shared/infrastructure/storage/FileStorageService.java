@@ -14,6 +14,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.UUID;
+import java.util.List;
+import java.util.Locale;
 
 @Service
 public class FileStorageService {
@@ -30,12 +32,34 @@ public class FileStorageService {
     }
 
     public String storeFile(MultipartFile file) {
+        return storeFile(file, List.of(), null);
+    }
+
+    public String storeFile(MultipartFile file, List<String> allowedFormats, Long maxFileSizeMb) {
         String originalFileName = StringUtils.cleanPath(file.getOriginalFilename() != null ? file.getOriginalFilename() : "file");
         String fileExtension = "";
         
         int lastDotIndex = originalFileName.lastIndexOf(".");
         if (lastDotIndex > 0) {
             fileExtension = originalFileName.substring(lastDotIndex);
+        }
+
+        if (maxFileSizeMb != null && maxFileSizeMb > 0) {
+            long maxBytes = maxFileSizeMb * 1024L * 1024L;
+            if (file.getSize() > maxBytes) {
+                throw new IllegalArgumentException("El archivo supera el tamaño máximo permitido de " + maxFileSizeMb + " MB.");
+            }
+        }
+
+        if (allowedFormats != null && !allowedFormats.isEmpty()) {
+            String normalizedExtension = fileExtension.replace(".", "").toLowerCase(Locale.ROOT);
+            boolean allowed = allowedFormats.stream()
+                    .filter(format -> format != null && !format.isBlank())
+                    .map(format -> format.replace(".", "").trim().toLowerCase(Locale.ROOT))
+                    .anyMatch(format -> format.equals(normalizedExtension));
+            if (!allowed) {
+                throw new IllegalArgumentException("Formato no permitido. Permitidos: " + String.join(", ", allowedFormats));
+            }
         }
         
         String fileName = UUID.randomUUID().toString() + fileExtension;

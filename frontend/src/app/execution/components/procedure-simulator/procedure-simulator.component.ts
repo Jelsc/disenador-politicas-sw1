@@ -2,7 +2,8 @@ import { CommonModule } from '@angular/common';
 import { ChangeDetectorRef, Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { OperationService, ProcedureTask, ProcedureTicket } from '../../services/operation.service';
+import { forkJoin } from 'rxjs';
+import { OperationService, OperatorContext, ProcedureTask, ProcedureTicket, OperationTaskField } from '../../services/operation.service';
 import { Policy } from '../../../policies/models/policy.model';
 
 @Component({
@@ -15,6 +16,12 @@ import { Policy } from '../../../policies/models/policy.model';
         <div>
           <h2>{{ title() }}</h2>
           <p>{{ subtitle() }}</p>
+          <div class="operator-context" *ngIf="operatorContext() as context">
+            <span class="context-label">Funcionario</span>
+            <strong>{{ context.name || context.username }}</strong>
+            <span class="context-divider">·</span>
+            <span>{{ departmentSummary(context) }}</span>
+          </div>
         </div>
         <button class="btn" (click)="loadAll()" [disabled]="loading()">Actualizar</button>
       </section>
@@ -167,8 +174,12 @@ import { Policy } from '../../../policies/models/policy.model';
               <label *ngFor="let option of field.options || []"><input type="checkbox" [checked]="isOptionChecked(task.id, field.id, option)" (change)="toggleOption(task.id, field.id, option, $any($event.target).checked)" /> {{ option }}</label>
             </div>
             <label class="check" *ngIf="field.type === 'CHECKBOX'"><input type="checkbox" [ngModel]="fieldValue(task.id, field.id)" (ngModelChange)="setFieldValue(task.id, field.id, $event)" /> Confirmado</label>
-            <input *ngIf="field.type === 'FILE'" type="file" (change)="setFileValue(task.id, field.id, $event)" />
+            <div class="file-drop-zone" *ngIf="field.type === 'FILE'">
+              <input type="file" [accept]="acceptedFileExtensions(field)" [multiple]="(field.maxFiles || 1) > 1" (change)="setFileValue(task.id, field, $event)" />
+              <small class="muted">{{ fileConstraintsSummary(field) }}</small>
+            </div>
             <button class="btn" *ngIf="field.type === 'SIGNATURE'" (click)="setFieldValue(task.id, field.id, 'FIRMA_TOUCH_SOLICITADA')">Solicitar firma al cliente</button>
+            <small class="muted" *ngIf="field.type === 'SIGNATURE' && field.signatureMessage">Mensaje al cliente: {{ field.signatureMessage }}</small>
             <small class="muted" *ngIf="field.type === 'FILE' && fieldValue(task.id, field.id)">Archivo: {{ fileLabel(task.id, field.id) }} <a *ngIf="fieldValue(task.id, field.id)?.url" [href]="fieldValue(task.id, field.id).url" target="_blank" class="download-link">Descargar</a></small>
             <small class="muted" *ngIf="field.type === 'SIGNATURE' && fieldValue(task.id, field.id)">Firma registrada/solicitada.</small>
           </div>
@@ -232,6 +243,10 @@ import { Policy } from '../../../policies/models/policy.model';
     .btn:disabled { opacity: .55; cursor: not-allowed; }
     .download-link { color: var(--color-primary); text-decoration: none; font-weight: 600; margin-left: 8px; }
     .download-link:hover { text-decoration: underline; }
+    .operator-context { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding: 8px 10px; border: 1px solid rgba(37,99,235,.18); border-radius: 999px; background: rgba(37,99,235,.06); color: var(--color-text-main); font-size: 12px; }
+    .context-label { color: var(--color-primary); font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
+    .context-divider { color: var(--color-text-muted); }
+    .file-drop-zone { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px dashed rgba(100,116,139,.45); border-radius: 12px; background: #f8fafc; }
   `]
 })
 export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
@@ -241,6 +256,7 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
   myProcedures = signal<ProcedureTicket[]>([]);
   departmentInbox = signal<ProcedureTask[]>([]);
   myTasks = signal<ProcedureTask[]>([]);
+  operatorContext = signal<OperatorContext | null>(null);
   selectedTask = signal<ProcedureTask | null>(null);
   creatingPolicy = signal<Policy | null>(null);
   clientForm = {
@@ -279,6 +295,7 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
   loadAll(): void {
     this.loading.set(true);
     this.operations.getStartablePolicies().subscribe({ next: data => this.startablePolicies.set(data), error: () => this.startablePolicies.set([]) });
+    this.operations.getCurrentUserContext().subscribe({ next: data => this.operatorContext.set(data), error: () => this.operatorContext.set(null) });
     this.operations.getMyProcedures().subscribe({ next: data => this.myProcedures.set(data), error: () => this.myProcedures.set([]) });
     this.operations.getDepartmentInbox().subscribe({ next: data => this.departmentInbox.set(data), error: () => this.departmentInbox.set([]) });
     this.operations.getMyTasks().subscribe({ next: data => { data.forEach(task => this.ensureTaskValues(task)); this.myTasks.set(data); this.loading.set(false); }, error: () => { this.myTasks.set([]); this.loading.set(false); } });
@@ -341,6 +358,11 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
       alert(`Falta completar: ${missing.label}`);
       return;
     }
+    const uploading = (task.formFields || []).find(field => this.isUploadingValue(this.fieldValue(task.id, field.id)));
+    if (uploading) {
+      alert(`Esperá a que termine la carga de archivos en: ${uploading.label}`);
+      return;
+    }
     this.operations.completeTask(task.id, this.taskFormValues[task.id] || {}).subscribe({ next: () => { delete this.taskFormValues[task.id]; this.closeTaskModal(); this.loadAll(); } });
   }
 
@@ -356,25 +378,44 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
     this.taskFormValues[taskId][fieldId] = value;
   }
 
-  setFileValue(taskId: string, fieldId: string, event: Event): void {
+  setFileValue(taskId: string, field: OperationTaskField, event: Event): void {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) {
+    const files = Array.from(input.files || []);
+    const fieldId = field.id;
+    if (!files.length) {
+      this.setFieldValue(taskId, fieldId, '');
+      return;
+    }
+
+    const maxFiles = field.maxFiles || 1;
+    if (files.length > maxFiles) {
+      alert(`Solo podés adjuntar hasta ${maxFiles} archivo(s) en este campo.`);
+      input.value = '';
+      this.setFieldValue(taskId, fieldId, '');
+      return;
+    }
+
+    const invalidFile = files.map(file => this.validateFileAgainstDesignerRules(file, field)).find(Boolean);
+    const validationError = invalidFile || null;
+    if (validationError) {
+      alert(validationError);
+      input.value = '';
       this.setFieldValue(taskId, fieldId, '');
       return;
     }
     
-    this.setFieldValue(taskId, fieldId, { loading: true, name: file.name });
+    this.setFieldValue(taskId, fieldId, { loading: true, name: files.length === 1 ? files[0].name : `${files.length} archivos` });
     
-    this.operations.uploadFile(file).subscribe({
-      next: (res) => {
-        this.setFieldValue(taskId, fieldId, {
+    forkJoin(files.map(file => this.operations.uploadFile(file, field))).subscribe({
+      next: (responses) => {
+        const uploadedFiles = responses.map((res, index) => ({
           name: res.fileName,
-          originalName: file.name,
+          originalName: files[index].name,
           url: res.fileDownloadUri,
-          size: file.size,
+          size: files[index].size,
           type: res.fileType
-        });
+        }));
+        this.setFieldValue(taskId, fieldId, maxFiles === 1 ? uploadedFiles[0] : uploadedFiles);
         this.cdr.detectChanges();
       },
       error: () => {
@@ -385,10 +426,44 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
     });
   }
 
+  acceptedFileExtensions(field: OperationTaskField): string {
+    return (field.allowedFormats || []).map(format => `.${format.replace('.', '').trim()}`).join(',');
+  }
+
+  fileConstraintsSummary(field: OperationTaskField): string {
+    const formats = field.allowedFormats?.length ? field.allowedFormats.join(', ').toUpperCase() : 'cualquier formato';
+    const maxSize = field.maxFileSizeMb ? ` · máximo ${field.maxFileSizeMb} MB` : '';
+    const maxFiles = ` · hasta ${field.maxFiles || 1} archivo(s)`;
+    return `Permitidos: ${formats}${maxSize}${maxFiles}. Parámetros definidos por el diseñador.`;
+  }
+
+  departmentSummary(context: OperatorContext): string {
+    return context.departments?.length
+      ? `Departamento(s): ${context.departments.map(department => department.name).join(', ')}`
+      : 'Sin departamento asignado';
+  }
+
+  private validateFileAgainstDesignerRules(file: File, field: OperationTaskField): string | null {
+    if (field.maxFileSizeMb && file.size > field.maxFileSizeMb * 1024 * 1024) {
+      return `El archivo supera el máximo permitido (${field.maxFileSizeMb} MB).`;
+    }
+
+    if (field.allowedFormats?.length) {
+      const extension = file.name.split('.').pop()?.toLowerCase() || '';
+      const allowed = field.allowedFormats.map(format => format.replace('.', '').trim().toLowerCase());
+      if (!allowed.includes(extension)) {
+        return `Formato no permitido. Permitidos: ${field.allowedFormats.join(', ')}.`;
+      }
+    }
+
+    return null;
+  }
+
   fileLabel(taskId: string, fieldId: string): string {
     const value = this.fieldValue(taskId, fieldId);
     if (!value) return '';
     if (value.loading) return `Subiendo ${value.name}...`;
+    if (Array.isArray(value)) return `${value.length} archivo(s) subido(s): ${value.map(item => item.originalName || item.name).join(', ')}`;
     if (typeof value === 'object' && value?.originalName) {
       return `${value.originalName} (${Math.round((value.size || 0) / 1024)} KB) - Subido ✅`;
     }
@@ -458,7 +533,12 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
   private isMissingValue(value: any): boolean {
     if (Array.isArray(value)) return value.length === 0;
     if (typeof value === 'boolean') return !value;
+    if (this.isUploadingValue(value)) return true;
     if (value && typeof value === 'object') return Object.keys(value).length === 0;
     return value === null || value === undefined || String(value).trim() === '';
+  }
+
+  private isUploadingValue(value: any): boolean {
+    return !!value && typeof value === 'object' && !Array.isArray(value) && value.loading === true;
   }
 }

@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @Builder
@@ -28,4 +29,5 @@ public class ProcedureTrackingResponse {
     private List<String> currentDepartments;
     private List<String> currentTasks;
     private String finalObservation;
+    private List<Map<String, Object>> pendingSignatureRequests;
 }

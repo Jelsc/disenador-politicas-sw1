@@ -85,3 +85,30 @@ docker compose up -d --build
 
 Ingresá a `https://app.tudominio.com` en tu navegador. El candado de seguridad debería estar activo y la plataforma funcionando. 
 Si vas a conectarte desde la App Móvil Flutter, el `api_service.dart` utilizará automáticamente `https://api.tudominio.com/api` cuando buildees el APK en modo Release.
+
+## IA Local con Ollama
+
+El asistente puede usar un modelo neuronal local sin consumir servicios externos. Para una VM de **2 vCPU / 8GB RAM**, usá un modelo chico:
+
+```env
+AI_PROVIDER=ollama
+OLLAMA_URL=http://ollama:11434
+OLLAMA_MODEL=qwen2.5:3b-instruct
+OLLAMA_TIMEOUT_SECONDS=45
+AI_NEURAL_MAX_RULE_NODES=80
+```
+
+Después de levantar los contenedores, descargá el modelo una sola vez:
+
+```bash
+docker exec -it tuapp-ollama ollama pull qwen2.5:3b-instruct
+docker compose restart ai-service
+```
+
+El flujo queda así:
+
+```txt
+Angular → FastAPI AI Service → Ollama local → validador determinístico del flujo
+```
+
+El modelo ayuda a comprender y razonar, pero el sistema sigue validando estructura, departamentos, firmas, archivos y rutas antes de aplicar cambios.

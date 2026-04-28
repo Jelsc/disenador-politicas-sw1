@@ -6,4 +6,5 @@ import java.util.List;
 
 public interface ProcedureMongoRepository extends MongoRepository<ProcedureDocument, String> {
     List<ProcedureDocument> findByCreatedByOrderByCreatedAtDesc(String createdBy);
+    List<ProcedureDocument> findByClientCiOrderByCreatedAtDesc(String clientCi);
 }

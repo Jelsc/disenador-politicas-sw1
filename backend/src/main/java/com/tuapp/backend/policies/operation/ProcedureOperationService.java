@@ -7,6 +7,8 @@ import com.tuapp.backend.policies.application.PolicyService;
 import com.tuapp.backend.policies.domain.Policy;
 import com.tuapp.backend.users.domain.User;
 import com.tuapp.backend.users.domain.Role;
+import com.tuapp.backend.users.domain.Department;
+import com.tuapp.backend.users.domain.DepartmentRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.tuapp.backend.users.domain.UserRepository;
 import com.tuapp.backend.shared.infrastructure.notifications.PushNotificationService;
@@ -29,18 +31,44 @@ public class ProcedureOperationService {
     private final UserRepository userRepository;
     private final ProcedureMongoRepository procedureRepository;
     private final ProcedureTaskMongoRepository taskRepository;
+    private final ProcedureNotificationMongoRepository notificationRepository;
+    private final DepartmentRepository departmentRepository;
     private final ObjectMapper objectMapper;
     private final PasswordEncoder passwordEncoder;
     private final PushNotificationService pushNotificationService;
 
-    public ProcedureOperationService(PolicyService policyService, UserRepository userRepository, ProcedureMongoRepository procedureRepository, ProcedureTaskMongoRepository taskRepository, ObjectMapper objectMapper, PasswordEncoder passwordEncoder, PushNotificationService pushNotificationService) {
+    public ProcedureOperationService(PolicyService policyService, UserRepository userRepository, ProcedureMongoRepository procedureRepository, ProcedureTaskMongoRepository taskRepository, ProcedureNotificationMongoRepository notificationRepository, DepartmentRepository departmentRepository, ObjectMapper objectMapper, PasswordEncoder passwordEncoder, PushNotificationService pushNotificationService) {
         this.policyService = policyService;
         this.userRepository = userRepository;
         this.procedureRepository = procedureRepository;
         this.taskRepository = taskRepository;
+        this.notificationRepository = notificationRepository;
+        this.departmentRepository = departmentRepository;
         this.objectMapper = objectMapper;
         this.passwordEncoder = passwordEncoder;
         this.pushNotificationService = pushNotificationService;
+    }
+
+    public Map<String, Object> currentUserContext(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Usuario no encontrado."));
+        List<Map<String, Object>> departments = (user.getDepartmentIds() == null ? List.<String>of() : user.getDepartmentIds()).stream()
+                .map(departmentId -> departmentRepository.findById(departmentId)
+                        .map(dept -> Map.<String, Object>of(
+                                "id", dept.getId(),
+                                "name", dept.getName(),
+                                "description", dept.getDescription() == null ? "" : dept.getDescription(),
+                                "active", dept.isActive()
+                        ))
+                        .orElse(Map.<String, Object>of("id", departmentId, "name", departmentId, "description", "", "active", true)))
+                .toList();
+
+        return Map.of(
+                "username", user.getUsername(),
+                "name", user.getName() == null ? user.getUsername() : user.getName(),
+                "roles", user.getRoles() == null ? List.of() : user.getRoles(),
+                "departments", departments
+        );
     }
 
     public List<Policy> startablePolicies(String username) {
@@ -100,6 +128,10 @@ public class ProcedureOperationService {
                 .createdAt(now)
                 .updatedAt(now)
                 .build());
+        notifyClientByCi(clientCi,
+                "Trámite iniciado: " + policy.getName(),
+                "Tu trámite fue registrado y ya está en proceso.",
+                Map.of("procedureId", procedure.getId(), "type", "PROCEDURE_CREATED"));
         JsonNode start = firstNode(policy, "START");
         if (start != null) activateNext(policy, procedure, start.path("id").asText(), new HashSet<>());
         return procedure;
@@ -132,6 +164,11 @@ public class ProcedureOperationService {
         task.setCompletedAt(LocalDateTime.now());
         ProcedureTaskDocument saved = taskRepository.save(task);
         ProcedureDocument procedure = procedureRepository.findById(task.getProcedureId()).orElseThrow();
+        notifySignatureRequests(procedure, saved);
+        notifyClientByCi(procedure.getClientCi(),
+                "Etapa completada: " + procedure.getPolicyName(),
+                "La etapa \"" + task.getNodeLabel() + "\" fue completada.",
+                Map.of("procedureId", procedure.getId(), "taskId", task.getId(), "type", "TASK_COMPLETED"));
         if (procedure.getValues() == null) procedure.setValues(new HashMap<>());
         procedure.getValues().putAll(saved.getFormValues());
         procedure.setUpdatedAt(LocalDateTime.now());
@@ -142,9 +179,74 @@ public class ProcedureOperationService {
     }
 
     public List<ProcedureTrackingResponse> myProcedures(String username) {
-        return procedureRepository.findByCreatedByOrderByCreatedAtDesc(username).stream()
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Usuario no encontrado."));
+        boolean client = user.getRoles() != null && user.getRoles().contains(Role.CLIENT);
+        List<ProcedureDocument> procedures = client
+                ? procedureRepository.findByClientCiOrderByCreatedAtDesc(username)
+                : procedureRepository.findByCreatedByOrderByCreatedAtDesc(username);
+        return procedures.stream()
                 .map(this::toTrackingResponse)
                 .toList();
+    }
+
+    public List<ProcedureNotificationDocument> myNotifications(String username) {
+        return notificationRepository.findByRecipientUsernameOrderByCreatedAtDesc(username);
+    }
+
+    public long unreadNotificationCount(String username) {
+        return notificationRepository.countByRecipientUsernameAndReadFalse(username);
+    }
+
+    public ProcedureNotificationDocument markNotificationRead(String notificationId, String username) {
+        ProcedureNotificationDocument notification = notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Notificación no encontrada."));
+        if (!username.equals(notification.getRecipientUsername())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No podés leer notificaciones de otro cliente.");
+        }
+        notification.setRead(true);
+        notification.setReadAt(LocalDateTime.now());
+        return notificationRepository.save(notification);
+    }
+
+    public ProcedureDocument submitClientSignature(String procedureId, ClientSignatureRequest request, String username) {
+        ProcedureDocument procedure = procedureRepository.findById(procedureId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Trámite no encontrado."));
+        if (!username.equals(procedure.getClientCi())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo el cliente titular puede firmar este trámite.");
+        }
+        if (request.getTaskId() == null || request.getTaskId().isBlank() || request.getFieldId() == null || request.getFieldId().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La firma debe indicar tarea y campo.");
+        }
+        if (request.getImageBase64() == null || request.getImageBase64().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La imagen de firma es obligatoria.");
+        }
+
+        ProcedureTaskDocument task = taskRepository.findById(request.getTaskId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tarea de firma no encontrada."));
+        if (!procedureId.equals(task.getProcedureId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La tarea no pertenece al trámite indicado.");
+        }
+        boolean fieldExists = task.getFormFields() != null && task.getFormFields().stream().anyMatch(field ->
+                request.getFieldId().equals(String.valueOf(field.get("id")))
+                        && "SIGNATURE".equalsIgnoreCase(String.valueOf(field.get("type")))
+        );
+        if (!fieldExists) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El campo indicado no requiere firma del cliente.");
+        }
+
+        if (task.getFormValues() == null) task.setFormValues(new HashMap<>());
+        task.getFormValues().put(request.getFieldId(), "FIRMADA POR CLIENTE");
+        task.getFormValues().put(request.getFieldId() + "_signedAt", LocalDateTime.now().toString());
+        task.getFormValues().put(request.getFieldId() + "_signatureBase64", request.getImageBase64());
+        taskRepository.save(task);
+
+        if (procedure.getValues() == null) procedure.setValues(new HashMap<>());
+        procedure.getValues().put("clientSignatureTaskId", request.getTaskId());
+        procedure.getValues().put("clientSignatureFieldId", request.getFieldId());
+        procedure.getValues().put("clientSignatureSignedAt", LocalDateTime.now().toString());
+        procedure.setUpdatedAt(LocalDateTime.now());
+        return procedureRepository.save(procedure);
     }
 
     private ProcedureTrackingResponse toTrackingResponse(ProcedureDocument proc) {
@@ -202,7 +304,30 @@ public class ProcedureOperationService {
             .currentDepartments(currentDepts)
             .currentTasks(currentTaskNames)
             .finalObservation(observation)
+            .pendingSignatureRequests(pendingSignatureRequests(tasks))
             .build();
+    }
+
+    private List<Map<String, Object>> pendingSignatureRequests(List<ProcedureTaskDocument> tasks) {
+        List<Map<String, Object>> pending = new ArrayList<>();
+        for (ProcedureTaskDocument task : tasks) {
+            if (task.getFormFields() == null) continue;
+            for (Map<String, Object> field : task.getFormFields()) {
+                if (!"SIGNATURE".equalsIgnoreCase(String.valueOf(field.get("type")))) continue;
+                String fieldId = String.valueOf(field.get("id"));
+                Object value = task.getFormValues() == null ? null : task.getFormValues().get(fieldId);
+                boolean signed = value != null && String.valueOf(value).toUpperCase().contains("FIRMADA");
+                if (signed) continue;
+                pending.add(Map.of(
+                        "taskId", task.getId(),
+                        "fieldId", fieldId,
+                        "label", String.valueOf(field.getOrDefault("label", "Firma del cliente")),
+                        "message", String.valueOf(field.getOrDefault("signatureMessage", "Se requiere tu firma digital.")),
+                        "taskLabel", task.getNodeLabel() == null ? "Etapa del trámite" : task.getNodeLabel()
+                ));
+            }
+        }
+        return pending;
     }
 
     public List<Map<String, Object>> learningEvents() {
@@ -276,46 +401,37 @@ public class ProcedureOperationService {
                 .createdAt(LocalDateTime.now())
                 .build());
 
-        notifyClientIfApplicable(procedure, task, fields);
+        notifyClientIfApplicable(procedure, task, node, fields);
     }
 
-    private void notifyClientIfApplicable(ProcedureDocument procedure, ProcedureTaskDocument task, List<Map<String, Object>> fields) {
-        if (procedure.getClientCi() == null || procedure.getClientCi().isBlank()) return;
+    private void notifyClientIfApplicable(ProcedureDocument procedure, ProcedureTaskDocument task, JsonNode node, List<Map<String, Object>> fields) {
+        JsonNode config = node.path("config");
+        boolean notifyByTask = config.path("notifyClient").asBoolean(false) || config.path("visibleToClient").asBoolean(false);
 
-        userRepository.findByUsername(procedure.getClientCi()).ifPresent(client -> {
-            String fcmToken = client.getFcmToken();
-            if (fcmToken == null || fcmToken.isBlank()) return;
+        if (notifyByTask) {
+            notifyClientByCi(procedure.getClientCi(),
+                    "Avance de trámite: " + procedure.getPolicyName(),
+                    "Tu trámite avanzó a: " + task.getNodeLabel(),
+                    Map.of("procedureId", procedure.getId(), "taskId", task.getId(), "type", "STATUS_UPDATE"));
+        }
 
-            // 1. Notificar avance de fase/área
-            pushNotificationService.sendPushNotificationToToken(
-                    fcmToken,
-                    "Avance de Trámite: " + procedure.getPolicyName(),
-                    "Tu trámite ha avanzado a la etapa: " + task.getNodeLabel(),
-                    Map.of("procedureId", procedure.getId(), "type", "STATUS_UPDATE")
-            );
+        for (Map<String, Object> field : fields) {
+            boolean requireSignature = "SIGNATURE".equalsIgnoreCase(String.valueOf(field.get("type")));
+            boolean notifyClient = Boolean.TRUE.equals(field.get("notifyClient")) || Boolean.TRUE.equals(field.get("visibleToClient"));
 
-            // 2. Revisar opciones especiales en el formulario (notifyClient o firmas)
-            for (Map<String, Object> field : fields) {
-                boolean requireSignature = "signature".equalsIgnoreCase(String.valueOf(field.get("type")));
-                boolean notifyClient = Boolean.TRUE.equals(field.get("notifyClient"));
-
-                if (requireSignature) {
-                    pushNotificationService.sendPushNotificationToToken(
-                            fcmToken,
-                            "Firma Requerida",
-                            "Se requiere tu firma digital para: " + String.valueOf(field.get("label")),
-                            Map.of("procedureId", procedure.getId(), "type", "SIGNATURE_REQUIRED")
-                    );
-                } else if (notifyClient) {
-                    pushNotificationService.sendPushNotificationToToken(
-                            fcmToken,
-                            "Notificación del Trámite",
-                            "Atención requerida: " + String.valueOf(field.get("label")),
-                            Map.of("procedureId", procedure.getId(), "type", "FIELD_NOTIFICATION")
-                    );
-                }
+            if (requireSignature) {
+                String customMessage = String.valueOf(field.getOrDefault("signatureMessage", "")).trim();
+                notifyClientByCi(procedure.getClientCi(),
+                        "Firma requerida",
+                        customMessage.isBlank() ? "Se requiere tu firma digital para: " + String.valueOf(field.get("label")) : customMessage,
+                        Map.of("procedureId", procedure.getId(), "taskId", task.getId(), "fieldId", String.valueOf(field.get("id")), "type", "SIGNATURE_REQUIRED"));
+            } else if (notifyClient) {
+                notifyClientByCi(procedure.getClientCi(),
+                        "Actualización del trámite",
+                        "Revisá el avance relacionado con: " + String.valueOf(field.get("label")),
+                        Map.of("procedureId", procedure.getId(), "taskId", task.getId(), "fieldId", String.valueOf(field.get("id")), "type", "FIELD_NOTIFICATION"));
             }
-        });
+        }
     }
 
     private void closeProcedure(ProcedureDocument procedure, JsonNode end) {
@@ -323,6 +439,45 @@ public class ProcedureOperationService {
         procedure.setCompletedAt(LocalDateTime.now());
         procedure.setUpdatedAt(LocalDateTime.now());
         procedureRepository.save(procedure);
+        notifyClientByCi(procedure.getClientCi(),
+                "Trámite finalizado: " + procedure.getPolicyName(),
+                end.path("config").path("customerMessage").asText("Tu trámite finalizó. Revisá el resultado en la app."),
+                Map.of("procedureId", procedure.getId(), "type", "PROCEDURE_CLOSED"));
+    }
+
+    private void notifySignatureRequests(ProcedureDocument procedure, ProcedureTaskDocument task) {
+        if (task.getFormValues() == null || task.getFormFields() == null) return;
+        for (Map<String, Object> field : task.getFormFields()) {
+            if (!"SIGNATURE".equalsIgnoreCase(String.valueOf(field.get("type")))) continue;
+            Object value = task.getFormValues().get(String.valueOf(field.get("id")));
+            if (value == null || !String.valueOf(value).toUpperCase().contains("SOLICITADA")) continue;
+            String customMessage = String.valueOf(field.getOrDefault("signatureMessage", "")).trim();
+            notifyClientByCi(procedure.getClientCi(),
+                    "Firma pendiente",
+                    customMessage.isBlank() ? "Tenés una firma pendiente para: " + String.valueOf(field.get("label")) : customMessage,
+                    Map.of("procedureId", procedure.getId(), "taskId", task.getId(), "fieldId", String.valueOf(field.get("id")), "type", "SIGNATURE_REQUESTED"));
+        }
+    }
+
+    private void notifyClientByCi(String clientCi, String title, String body, Map<String, String> data) {
+        if (clientCi == null || clientCi.isBlank()) return;
+        userRepository.findByUsername(clientCi).ifPresent(client -> {
+            notificationRepository.save(ProcedureNotificationDocument.builder()
+                    .recipientUsername(client.getUsername())
+                    .title(title)
+                    .body(body)
+                    .type(data.getOrDefault("type", "PROCEDURE_UPDATE"))
+                    .procedureId(data.get("procedureId"))
+                    .taskId(data.get("taskId"))
+                    .fieldId(data.get("fieldId"))
+                    .data(data)
+                    .read(false)
+                    .createdAt(LocalDateTime.now())
+                    .build());
+            String fcmToken = client.getFcmToken();
+            if (fcmToken == null || fcmToken.isBlank()) return;
+            pushNotificationService.sendPushNotificationToToken(fcmToken, title, body, data);
+        });
     }
 
     private String branchTarget(JsonNode gateway, String value) {

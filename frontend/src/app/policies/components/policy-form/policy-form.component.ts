@@ -24,6 +24,7 @@ interface TaskFormField {
   required?: boolean;
   order: number;
   visibleToClient?: boolean;
+  notifyClient?: boolean;
   voiceInputEnabled?: boolean;
   usedForDecision?: boolean;
   options?: string[];
@@ -321,7 +322,7 @@ const EMPTY_RULES: PolicyBoardRules = { version: 1, departments: [], nodes: [], 
                <div class="node-type">{{ node.type }}</div>
                 <input class="node-label" [readOnly]="editingBlocked()" [(ngModel)]="node.label" (ngModelChange)="syncRules()" (pointerdown)="$event.stopPropagation()" />
                 <div class="node-meta" *ngIf="node.type === 'TASK' && node.config?.form?.fields?.length">✔ Formulario configurado · {{ node.config?.form?.fields?.length }} campo(s)</div>
-                <button class="node-remove" *ngIf="!editingBlocked()" (click)="removeNode(node.id, $event)">×</button>
+                <button class="node-remove" type="button" *ngIf="!editingBlocked()" (pointerdown)="stopNodeAction($event)" (click)="removeNode(node.id, $event)">×</button>
             </article>
             </div>
           </div>
@@ -392,6 +393,7 @@ const EMPTY_RULES: PolicyBoardRules = { version: 1, departments: [], nodes: [], 
                 <input *ngIf="supportsPlaceholder(field.type)" class="config-input" [ngModel]="field.placeholder || ''" (ngModelChange)="updateTaskFormField(field.id, { placeholder: $event })" [readOnly]="editingBlocked()" />
                 <label class="config-check"><input type="checkbox" [ngModel]="field.required || false" (ngModelChange)="updateTaskFormField(field.id, { required: $event })" [disabled]="editingBlocked()" /> Obligatorio</label>
                 <label class="config-check"><input type="checkbox" [ngModel]="field.visibleToClient || false" (ngModelChange)="updateTaskFormField(field.id, { visibleToClient: $event })" [disabled]="editingBlocked()" /> Reflejar valor al cliente</label>
+                <label class="config-check"><input type="checkbox" [ngModel]="field.notifyClient || false" (ngModelChange)="updateTaskFormField(field.id, { notifyClient: $event })" [disabled]="editingBlocked()" /> Notificar al cliente por este campo</label>
                 <label class="config-check" *ngIf="supportsVoice(field.type)"><input type="checkbox" [ngModel]="field.voiceInputEnabled || false" (ngModelChange)="updateTaskFormField(field.id, { voiceInputEnabled: $event })" [disabled]="editingBlocked()" /> Permitir dictado por voz</label>
                 <label class="config-check" *ngIf="supportsDecision(field.type)"><input type="checkbox" [ngModel]="field.usedForDecision || false" (ngModelChange)="updateTaskFormField(field.id, { usedForDecision: $event })" [disabled]="editingBlocked()" /> Usar para decisión</label>
 
@@ -427,6 +429,8 @@ const EMPTY_RULES: PolicyBoardRules = { version: 1, departments: [], nodes: [], 
                   <input class="config-input" placeholder="pdf,jpg,png" [ngModel]="(field.allowedFormats || []).join(', ')" (ngModelChange)="updateTaskFormField(field.id, { allowedFormats: splitCsv($event) })" [readOnly]="editingBlocked()" />
                   <label>Cantidad máxima</label>
                   <input class="config-input" type="number" [ngModel]="field.maxFiles || 1" (ngModelChange)="updateTaskFormField(field.id, { maxFiles: numberValue($event) })" [readOnly]="editingBlocked()" />
+                  <label>Tamaño máximo por archivo (MB)</label>
+                  <input class="config-input" type="number" [ngModel]="field.maxFileSizeMb || 10" (ngModelChange)="updateTaskFormField(field.id, { maxFileSizeMb: numberValue($event) })" [readOnly]="editingBlocked()" />
                 </ng-container>
 
                 <ng-container *ngIf="field.type === 'RESULT'">
@@ -1007,6 +1011,9 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
 
   private draggingNodeId: string | null = null;
   private draggingNodeSnapshot: BoardNode | null = null;
+  private nodeDragActive = false;
+  private suppressNextNodeClick = false;
+  private dragStartClient = { x: 0, y: 0 };
   private draggedDepartmentId: string | null = null;
   private draggedNodeType: BoardNodeType | null = null;
   private resizingLaneId: string | null = null;
@@ -1248,6 +1255,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
 
   removeNode(id: string, event: Event): void {
     if (this.editingBlocked()) return;
+    event.preventDefault();
     event.stopPropagation();
     const previous = JSON.stringify(this.nodes().find(node => node.id === id));
     this.nodes.update(nodes => nodes.filter(node => node.id !== id));
@@ -1275,6 +1283,10 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
 
   handleNodeClick(node: BoardNode, event: Event): void {
     event.stopPropagation();
+    if (this.suppressNextNodeClick) {
+      this.suppressNextNodeClick = false;
+      return;
+    }
     if (this.editingBlocked()) return;
     if (!this.connectMode()) return;
 
@@ -1293,6 +1305,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   }
 
   openNodeConfig(node: BoardNode, event: Event): void {
+    event.preventDefault();
     event.stopPropagation();
     if (this.editingBlocked()) return;
     if (node.type === 'TASK') {
@@ -1382,11 +1395,15 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
       required: type === 'RESULT' || type === 'SIGNATURE',
       order: fields.length + 1,
       visibleToClient: type === 'RESULT' || type === 'SIGNATURE',
+      notifyClient: type === 'SIGNATURE',
       voiceInputEnabled: type === 'LONG_TEXT',
       usedForDecision: type === 'RESULT',
       options: this.defaultFieldOptions(type),
       allowedFormats: type === 'FILE' ? ['pdf', 'jpg', 'png'] : undefined,
-      maxFiles: type === 'FILE' ? 1 : undefined
+      maxFiles: type === 'FILE' ? 1 : undefined,
+      maxFileSizeMb: type === 'FILE' ? 10 : undefined,
+      signatureMessage: type === 'SIGNATURE' ? 'Por favor revisá tu trámite y registrá tu firma digital.' : undefined,
+      signatureDeadlineHours: type === 'SIGNATURE' ? 24 : undefined
     };
     this.updateTaskFormFields([...fields, field]);
     this.selectedFormFieldId.set(field.id);
@@ -1519,13 +1536,22 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     if (this.editingBlocked()) return;
     if (event.button !== 0) return;
     if (this.connectMode()) return;
+    if (this.isInteractiveNodeTarget(event.target)) return;
+    event.preventDefault();
     event.stopPropagation();
     this.draggingNodeId = node.id;
     this.draggingNodeSnapshot = { ...node, config: node.config ? { ...node.config } : undefined };
+    this.nodeDragActive = false;
+    this.dragStartClient = { x: event.clientX, y: event.clientY };
     const point = this.boardPointFromEvent(event);
     this.dragOffset = { x: point.x - node.x, y: point.y - node.y };
     window.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('pointerup', this.onPointerUp);
+  }
+
+  stopNodeAction(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   connectorPath(connector: BoardConnector): string {
@@ -2268,6 +2294,10 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
       if (invalidTasks.length) errors.push(`Tareas sin configuración completa: ${invalidTasks.map(task => task.label).join(', ')}.`);
       const signatureWithoutField = tasks.filter(task => task.config?.requiresSignature && !(task.config?.form?.fields || []).some(field => field.type === 'SIGNATURE'));
       if (signatureWithoutField.length) errors.push(`Tareas con firma sin campo Firma cliente: ${signatureWithoutField.map(task => task.label).join(', ')}.`);
+      const fileFieldsWithoutRules = tasks.filter(task => (task.config?.form?.fields || []).some(field => field.type === 'FILE' && (!(field.allowedFormats || []).length || !field.maxFileSizeMb)));
+      if (fileFieldsWithoutRules.length) warnings.push(`Campos de archivo sin formatos o tamaño máximo: ${fileFieldsWithoutRules.map(task => task.label).join(', ')}.`);
+      const signaturesWithoutMessage = tasks.filter(task => (task.config?.form?.fields || []).some(field => field.type === 'SIGNATURE' && !field.signatureMessage));
+      if (signaturesWithoutMessage.length) warnings.push(`Firmas sin mensaje claro para el cliente: ${signaturesWithoutMessage.map(task => task.label).join(', ')}.`);
       const manyFields = tasks.filter(task => (task.config?.form?.fields || []).length > 12);
       if (manyFields.length) warnings.push(`Formularios extensos: ${manyFields.map(task => task.label).join(', ')}.`);
       return this.simulationResult('Configuración de tareas', errors, warnings, `Tareas revisadas: ${tasks.length}.`);
@@ -2394,6 +2424,10 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
 
   private onPointerMove = (event: PointerEvent): void => {
     if (!this.draggingNodeId) return;
+    const deltaX = Math.abs(event.clientX - this.dragStartClient.x);
+    const deltaY = Math.abs(event.clientY - this.dragStartClient.y);
+    if (!this.nodeDragActive && deltaX < 4 && deltaY < 4) return;
+    this.nodeDragActive = true;
     const point = this.boardPointFromEvent(event);
     const y = Math.max(20, point.y - this.dragOffset.y);
     const scaledX = Math.max(190, point.x - this.dragOffset.x);
@@ -2427,7 +2461,8 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   };
 
   private onPointerUp = (): void => {
-    if (this.draggingNodeId && this.draggingNodeSnapshot) {
+    if (this.nodeDragActive && this.draggingNodeId && this.draggingNodeSnapshot) {
+      this.suppressNextNodeClick = true;
       const current = this.nodes().find(node => node.id === this.draggingNodeId);
       if (current && (current.x !== this.draggingNodeSnapshot.x || current.y !== this.draggingNodeSnapshot.y || current.departmentId !== this.draggingNodeSnapshot.departmentId)) {
         this.recordChange('MOVE_NODE', 'NODE', current.id, JSON.stringify(this.draggingNodeSnapshot), JSON.stringify(current));
@@ -2435,6 +2470,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     }
     this.draggingNodeId = null;
     this.draggingNodeSnapshot = null;
+    this.nodeDragActive = false;
     this.hoveredLaneId.set(null);
     window.removeEventListener('pointermove', this.onPointerMove);
     window.removeEventListener('pointerup', this.onPointerUp);
@@ -2452,4 +2488,9 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     window.removeEventListener('pointermove', this.onBoardPanMove);
     window.removeEventListener('pointerup', this.stopBoardPan);
   };
+
+  private isInteractiveNodeTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return !!target.closest('button, input, textarea, select, a, [data-no-node-drag]');
+  }
 }

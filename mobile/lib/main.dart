@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'screens/login_screen.dart';
 
 @pragma('vm:entry-point')
@@ -13,7 +12,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  
+
   // Solicitar permisos en iOS
   await FirebaseMessaging.instance.requestPermission(
     alert: true,
@@ -34,9 +33,10 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF7c3aed),
+          seedColor: const Color(0xFF7C4A20),
           brightness: Brightness.light,
         ),
+        scaffoldBackgroundColor: const Color(0xFFF6F1E8),
         useMaterial3: true,
       ),
       home: const LoginScreen(),
