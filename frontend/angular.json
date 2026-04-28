@@ -79,6 +79,13 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": {
+            "allowedHosts": [
+              "localhost",
+              "app-primerpacialsw.duckdns.org",
+              "api-primerpacialsw.duckdns.org"
+            ]
+          },
           "configurations": {
             "production": {
               "buildTarget": "frontend:build:production"

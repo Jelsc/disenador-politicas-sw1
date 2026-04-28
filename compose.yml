@@ -16,7 +16,7 @@ services:
       - APP_ENV=${APP_ENV}
       - FRONTEND_DOMAIN=${FRONTEND_DOMAIN}
       - API_DOMAIN=${API_DOMAIN}
-      - CERTBOT_CERT_NAME=${CERTBOT_CERT_NAME:-${FRONTEND_DOMAIN}}
+      - CERTBOT_CERT_NAME=${CERTBOT_CERT_NAME}
     depends_on:
       - frontend
       - backend
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
 
   ai-service:
-    build: 
+    build:
       context: ./services/ai-service
       dockerfile: Dockerfile
     container_name: tuapp-ai-service
@@ -60,7 +60,7 @@ services:
       - .env
 
   backend:
-    build: 
+    build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: tuapp-backend
@@ -80,7 +80,7 @@ services:
       - .env
 
   frontend:
-    build: 
+    build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: tuapp-frontend
@@ -96,11 +96,7 @@ services:
       - WS_URL=${WS_URL}
     # Reemplazamos el env.template.js al vuelo antes de iniciar angular
     command: >
-      /bin/sh -c "
-      apk add --no-cache gettext && 
-      mkdir -p /app/public/assets &&
-      envsubst < /app/public/assets/env.template.js > /app/public/assets/env.js &&
-      npx ng serve --host 0.0.0.0 --poll 2000"
+      /bin/sh -c " apk add --no-cache gettext &&  mkdir -p /app/public/assets && envsubst < /app/public/assets/env.template.js > /app/public/assets/env.js && npx ng serve --host 0.0.0.0 --poll 2000"
 
 volumes:
   mongodb_data:
