@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../../environments/environment';
 
 export interface AiSimulationCheck {
   label: string;
@@ -41,7 +42,42 @@ export interface AiExecutionLearningEvent {
   waitingSignatureHours?: number;
   completed?: boolean;
 }
-import { environment } from '../../../environments/environment';
+
+export interface AiVoiceIntakeRequest {
+  text?: string;
+  audioBase64?: string;
+  policyName?: string;
+  context?: Record<string, unknown>;
+}
+
+export interface AiVoiceIntakeResponse {
+  transcript: string;
+  source: 'text' | 'audio' | 'empty';
+  confidence: number;
+  structuredFields: {
+    intent: string;
+    routeHint: string;
+    summary: string;
+    keywords: string[];
+  };
+}
+
+export interface AiAnalystInsightsResponse {
+  route: string;
+  risk: 'LOW' | 'NORMAL' | 'HIGH';
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  anomalies: string[];
+  confidence: number;
+  summary: string;
+}
+
+export interface AiReportDraftResponse {
+  draftTitle: string;
+  draftBody: string;
+  missingFields: string[];
+  clarification?: string | null;
+  confidence: number;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -60,5 +96,21 @@ export class PolicyAiService {
 
   learnExecution(events: AiExecutionLearningEvent[]): Observable<{ learnedEvents: number; policies: number }> {
     return this.http.post<{ learnedEvents: number; policies: number }>(`${this.apiUrl}/learn/execution`, { events });
+  }
+
+  submitVoiceIntake(payload: AiVoiceIntakeRequest): Observable<AiVoiceIntakeResponse> {
+    return this.http.post<AiVoiceIntakeResponse>(`${this.apiUrl}/voice/intake`, payload);
+  }
+
+  getAnalystInsights(requestText: string, history: AiExecutionLearningEvent[] = [], policyName?: string): Observable<AiAnalystInsightsResponse> {
+    return this.http.post<AiAnalystInsightsResponse>(`${this.apiUrl}/analyst/insights`, {
+      requestText,
+      history,
+      policyName
+    });
+  }
+
+  draftReport(payload: AiVoiceIntakeRequest & { transcript?: string }): Observable<AiReportDraftResponse> {
+    return this.http.post<AiReportDraftResponse>(`${this.apiUrl}/reports/draft`, payload);
   }
 }

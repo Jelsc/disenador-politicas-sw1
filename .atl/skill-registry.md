@@ -1,33 +1,67 @@
-# Skill Registry
+# Installed Skills Registry
 
-**Delegator use only.** Any agent that launches sub-agents reads this registry to resolve compact rules, then injects them directly into sub-agent prompts. Sub-agents do NOT read this registry or individual SKILL.md files.
+Generated from project, user, and global `SKILL.md` scans.
 
-See `_shared/skill-resolver.md` for the full resolution protocol.
+- Indexed skills: 12
+- Cache status: regenerated from current scan
+- Skipped: `sdd-*`, `_shared`, `skill-registry`
 
-## User Skills
+## Project skills
 
-| Trigger | Skill | Path |
-|---------|-------|------|
-| This skill is for interface design — dashboards, admin panels, apps, tools, and interactive products. NOT for marketing design (landing pages, marketing sites, campaigns). | interface-design | C:\Users\nelso\Documents\Docker Proyectos\Diseñador-Politicas-sw1\.agents\skills\interface-design\SKILL.md |
+- **interface-design** — This skill is for interface design — dashboards, admin panels, apps, tools, and interactive products. NOT for marketing design (landing pages, marketing sites, campaigns).
+  - Scope: project
+  - Path: `C:\Users\nelso\Documents\Docker Proyectos\Diseñador-Politicas-sw1\.agents\skills\interface-design\SKILL.md`
 
-## Compact Rules
+## User skills
 
-Pre-digested rules per skill. Delegators copy matching blocks into sub-agent prompts as `## Project Standards (auto-resolved)`.
+- **find-skills** — Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.
+  - Scope: user
+  - Path: `C:\Users\nelso\.agents\skills\find-skills\SKILL.md`
 
-### interface-design
-- Always define Intent first: who the user is, what they must accomplish, and how it should feel.
-- Explore Product Domain before building: define concepts, color world, and a unique signature.
-- Reject defaults explicitly; avoid generic templates.
-- Use a surface elevation system: base layer, then slightly lighter (dark mode) or shadowed (light mode) surfaces.
-- Use soft, low-opacity borders for separation rather than harsh solid hex colors.
-- Build 4 levels of text hierarchy (primary, secondary, tertiary, muted) and use a consistent spacing base unit.
-- Build custom UI controls rather than relying on unstylable OS-native elements (`<select>`, `<input type="date">`).
-- Run the swap, squint, signature, and token tests before presenting output.
-- Every interactive element needs state definition (hover, active, focus, disabled, loading, empty, error).
+## Global skills
 
-## Project Conventions
+- **work-unit-commits** — Plan commits as reviewable work units. Trigger: implementation, commit splitting, chained PRs, or keeping tests and docs with code.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\work-unit-commits\SKILL.md`
 
-| File | Path | Notes |
-|------|------|-------|
+- **comment-writer** — Write warm, direct collaboration comments. Trigger: PR feedback, issue replies, reviews, Slack messages, or GitHub comments.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\comment-writer\SKILL.md`
 
-Read the convention files listed above for project-specific patterns and rules. All referenced paths have been extracted — no need to read index files to discover more.
+- **cognitive-doc-design** — Design docs that reduce cognitive load. Trigger: writing guides, READMEs, RFCs, onboarding, architecture, or review-facing docs.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\cognitive-doc-design\SKILL.md`
+
+- **chained-pr** — Trigger: PRs over 400 lines, stacked PRs, review slices. Split oversized changes into chained PRs that protect review focus.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\chained-pr\SKILL.md`
+
+- **issue-creation** — Create Gentle AI issues with issue-first checks. Trigger: creating GitHub issues, bug reports, or feature requests.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\issue-creation\SKILL.md`
+
+- **branch-pr** — Create Gentle AI pull requests with issue-first checks. Trigger: creating, opening, or preparing PRs for review.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\branch-pr\SKILL.md`
+
+- **skill-improver** — Trigger: improve skills, audit skills, refactor skills, skill quality. Audit and upgrade existing LLM-first skills.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\skill-improver\SKILL.md`
+
+- **skill-creator** — Trigger: new skills, agent instructions, documenting AI usage patterns. Create LLM-first skills with valid frontmatter.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\skill-creator\SKILL.md`
+
+- **go-testing** — Trigger: Go tests, go test coverage, Bubbletea teatest, golden files. Apply focused Go testing patterns.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\go-testing\SKILL.md`
+
+- **judgment-day** — Trigger: judgment day, dual review, adversarial review, juzgar. Run blind dual review, fix confirmed issues, then re-judge.
+  - Scope: global
+  - Path: `C:\Users\nelso\.config\opencode\skills\judgment-day\SKILL.md`
+
+## Notes
+
+- The registry is an index only; `SKILL.md` files remain the source of truth.
+- Project-level skills win over user-level skills when names collide.
+

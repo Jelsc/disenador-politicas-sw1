@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+from binascii import Error as BinasciiError
 from copy import deepcopy
 from collections import Counter, defaultdict, deque
 import json
@@ -12,6 +14,9 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from app.ai_runtime import get_ai_runtime
+from app.tensorflow_core import get_tensorflow_core
 
 
 app = FastAPI(title="Policy Design AI Service", version="1.1.0")
@@ -76,6 +81,7 @@ class AssistantResponse(BaseModel):
     answer: str
     recommendations: list[str] = Field(default_factory=list)
     suggestedRules: dict[str, Any] | None = None
+    modelSource: Literal["ollama"] = "ollama"
 
 
 class ExecutionLearningEvent(BaseModel):
@@ -92,6 +98,76 @@ class ExecutionLearningEvent(BaseModel):
 
 class LearningRequest(BaseModel):
     events: list[ExecutionLearningEvent] = Field(default_factory=list)
+
+
+class VoiceIntakeRequest(BaseModel):
+    text: str | None = None
+    audioBase64: str | None = None
+    policyName: str | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class VoiceIntakeResponse(BaseModel):
+    transcript: str
+    source: Literal["text", "audio", "empty"]
+    confidence: float
+    modelSource: Literal["tensorflow", "ollama"]
+    structuredFields: dict[str, Any]
+    policyAssignment: str | None = None
+    suggestedNextAction: str | None = None
+
+
+class AnalystInsightsRequest(BaseModel):
+    requestText: str
+    history: list[ExecutionLearningEvent] = Field(default_factory=list)
+    policyName: str | None = None
+
+
+class AnalystInsightsResponse(BaseModel):
+    route: str
+    risk: Literal["LOW", "NORMAL", "HIGH"]
+    priority: Literal["LOW", "NORMAL", "HIGH", "URGENT"]
+    anomalies: list[str]
+    confidence: float
+    summary: str
+    modelSource: Literal["tensorflow", "ollama"]
+    recommendedActions: list[str] = Field(default_factory=list)
+
+
+class ReportDraftRequest(BaseModel):
+    text: str | None = None
+    transcript: str | None = None
+    audioBase64: str | None = None
+    policyName: str | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReportDraftResponse(BaseModel):
+    draftTitle: str
+    draftBody: str
+    missingFields: list[str] = Field(default_factory=list)
+    clarification: str | None = None
+    confidence: float
+    modelSource: Literal["tensorflow", "ollama"]
+    reportType: str | None = None
+
+
+class FormAssistRequest(BaseModel):
+    text: str | None = None
+    audioBase64: str | None = None
+    policyName: str | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+    formFields: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class FormAssistResponse(BaseModel):
+    transcript: str
+    source: Literal["text", "audio", "empty"]
+    confidence: float
+    modelSource: Literal["tensorflow", "ollama"]
+    suggestedFields: list[dict[str, Any]]
+    missingFields: list[str] = Field(default_factory=list)
+    clarification: str | None = None
 
 
 @app.get("/")
@@ -227,49 +303,24 @@ def simulate_design(request: PolicyDesignRequest) -> SimulationReport:
 
 @app.post("/assistant", response_model=AssistantResponse)
 def assistant(request: AssistantRequest) -> AssistantResponse:
-    prompt = request.prompt.lower()
     rules = normalize_rules(request.rules)
     simulation = simulate_design(PolicyDesignRequest(policyName=request.policyName, rules=rules))
-
-    has_existing_flow = bool(rules["nodes"])
-    wants_new_flow = wants_flow_generation(prompt) and (not has_existing_flow or "desde cero" in prompt or "reemplaza" in prompt)
-    neural_response = neural_assistant_response(request, simulation)
-
-    if has_existing_flow and not wants_new_flow:
-        heuristic_response = collaborate_existing_flow(request, prompt, simulation)
-        return merge_neural_with_heuristic(neural_response, heuristic_response)
-
-    if wants_new_flow:
-        missing = missing_departments_in_prompt(request.rules, prompt)
-        if missing:
-            return AssistantResponse(
-                answer=f"No encontré estos departamentos activos en el sistema: {', '.join(missing)}.",
-                recommendations=["Verificá el nombre del departamento o activalo desde administración.", "Solo puedo armar flujos con departamentos activos existentes."],
-            )
-        suggested = adaptive_rules(request.policyName or "Política generada por IA", request.rules, prompt)
-        if not suggested:
-            return AssistantResponse(
-                answer="Necesito que primero selecciones al menos un departamento real del sistema para armar el flujo.",
-                recommendations=["Abrí Departamentos y agregá los carriles que van a participar.", "Después pedime el flujo de nuevo por texto o voz."],
-            )
-        return AssistantResponse(
-            answer=neural_response.answer if neural_response else "Te preparé un borrador con los departamentos disponibles para este diseño.",
-            recommendations=(neural_response.recommendations if neural_response else []) + ["Aplicá el diagrama sugerido solo si querés reemplazar la pizarra actual.", "Después corré Simular para validar campos, decisiones y riesgos."],
-            suggestedRules=suggested,
-        )
-
-    if any(word in prompt for word in ["decision", "decisión", "rama", "condicion", "condición"]):
-        heuristic_response = AssistantResponse(
-            answer="Para decisiones robustas, usá campos Resultado/Dictamen o Selección única marcados como 'Usar para decisión'. Cada decisión necesita mínimo dos salidas y camino por defecto.",
-            recommendations=["Marcá el campo evaluado dentro del formulario de una tarea anterior.", "Configurá ramas explícitas: Aprobado, Observado, Rechazado.", "No pongas formularios en Decisión; la Decisión solo evalúa datos."],
-        )
-        return merge_neural_with_heuristic(neural_response, heuristic_response)
-
-    heuristic_response = AssistantResponse(
-        answer=local_assistant_answer(prompt, simulation),
-        recommendations=simulation.recommendations + local_prompt_recommendations(prompt, request.rules),
+    runtime = get_ai_runtime()
+    result = runtime.assistant(
+        {
+            "policyName": request.policyName,
+            "prompt": request.prompt,
+            "rules": request.rules,
+            "history": request.history,
+        },
+        simulation.dict(),
     )
-    return merge_neural_with_heuristic(neural_response, heuristic_response)
+    return AssistantResponse(
+        answer=result["answer"],
+        recommendations=result["recommendations"],
+        suggestedRules=result.get("suggestedRules"),
+        modelSource=result.get("modelSource", "ollama"),
+    )
 
 
 def neural_assistant_response(request: AssistantRequest, simulation: SimulationReport) -> AssistantResponse | None:
@@ -387,6 +438,318 @@ def learn_execution(request: LearningRequest) -> dict[str, Any]:
         LEARNING_STORE[key].append(event.dict())
         LEARNING_STORE[key] = LEARNING_STORE[key][-500:]
     return {"learnedEvents": sum(len(events) for events in LEARNING_STORE.values()), "policies": len(LEARNING_STORE)}
+
+
+@app.post("/voice/intake", response_model=VoiceIntakeResponse)
+def voice_intake(request: VoiceIntakeRequest) -> VoiceIntakeResponse:
+    runtime = get_ai_runtime()
+    result = runtime.voice_intake(request.model_dump())
+    return VoiceIntakeResponse(**result)
+
+
+@app.post("/analyst/insights", response_model=AnalystInsightsResponse)
+def analyst_insights(request: AnalystInsightsRequest) -> AnalystInsightsResponse:
+    runtime = get_ai_runtime()
+    result = runtime.analyst_insights(request.model_dump())
+    return AnalystInsightsResponse(**result)
+
+
+@app.post("/reports/draft", response_model=ReportDraftResponse)
+def report_draft(request: ReportDraftRequest) -> ReportDraftResponse:
+    runtime = get_ai_runtime()
+    result = runtime.report_draft(request.model_dump())
+    return ReportDraftResponse(**result)
+
+
+@app.post("/form/assist", response_model=FormAssistResponse)
+def form_assist(request: FormAssistRequest) -> FormAssistResponse:
+    runtime = get_ai_runtime()
+    result = runtime.form_assist(request.model_dump())
+    return FormAssistResponse(**result)
+
+
+def transcribe_input(text: str | None, audio_base64: str | None) -> tuple[str, Literal["text", "audio", "empty"], float]:
+    if text and text.strip():
+        return text.strip(), "text", 0.98
+
+    if not audio_base64:
+        return "", "empty", 0.0
+
+    decoded = decode_audio_payload(audio_base64)
+    if decoded:
+        return decoded, "audio", 0.72
+
+    return f"Audio recibido ({len(audio_base64)} caracteres base64)", "audio", 0.4
+
+
+def decode_audio_payload(audio_base64: str) -> str:
+    try:
+        raw = base64.b64decode(audio_base64, validate=True)
+    except (BinasciiError, ValueError):
+        return ""
+
+    transcript = raw.decode("utf-8", errors="ignore").strip()
+    if transcript:
+        return transcript
+    return f"Audio de {len(raw)} bytes recibido"
+
+
+def build_voice_structured_fields(transcript: str, context: dict[str, Any], policy_name: str | None) -> dict[str, Any]:
+    route = detect_route(transcript)
+    intent = classify_intent(transcript)
+    keywords = sorted(token_list(transcript))[:8]
+    return {
+        "intent": intent,
+        "routeHint": route.lower(),
+        "summary": transcript[:160],
+        "keywords": keywords,
+        "policyName": policy_name,
+        "contextSize": len(context),
+    }
+
+
+def classify_intent(text: str) -> str:
+    normalized = normalize_text(text)
+    if any(word in normalized for word in ["necesit", "solicit", "quier", "tramite", "trámite", "report", "denunc", "quie"]):
+        return "request"
+    return "statement"
+
+
+def suggest_policy_assignment(structured_fields: dict[str, Any], policy_name: str | None) -> str | None:
+    if policy_name:
+        return policy_name
+    route_hint = str(structured_fields.get("routeHint") or "general").strip().lower()
+    return f"{route_hint}-policy-candidate" if route_hint else None
+
+
+def suggest_next_action(structured_fields: dict[str, Any]) -> str:
+    intent = str(structured_fields.get("intent") or "statement")
+    route_hint = str(structured_fields.get("routeHint") or "general").upper()
+    if intent == "request":
+        return f"Review intake and assign workflow for route {route_hint}."
+    return "Review transcript and enrich missing business context."
+
+
+def detect_route(text: str) -> str:
+    normalized = normalize_text(text)
+    route_map = {
+        "LEGAL": ["legal", "juridic", "juicio", "abogado", "normativa"],
+        "FINANCIERO": ["financ", "pago", "cobro", "factura", "presupuesto"],
+        "ATENCION": ["cliente", "reclamo", "queja", "atencion", "consulta"],
+        "SOPORTE": ["soporte", "mesa de ayuda", "helpdesk", "incidente", "error"],
+        "RRHH": ["rrhh", "recursos humanos", "personal", "vacacion", "licencia"],
+    }
+    for route, keywords in route_map.items():
+        if any(keyword in normalized for keyword in keywords):
+            return route
+    return "GENERAL"
+
+
+def summarize_execution_history(history: list[ExecutionLearningEvent]) -> dict[str, Any]:
+    events = [event.model_dump() if hasattr(event, "model_dump") else event.dict() for event in history]
+    if not events:
+        return {
+            "sampleSize": 0,
+            "avgQueue": 0.0,
+            "avgDuration": 0.0,
+            "avgRework": 0.0,
+            "avgSignatureWait": 0.0,
+            "anomalyScore": 0.0,
+            "anomalies": [],
+        }
+
+    sample_size = len(events)
+    avg_queue = sum(float(event.get("queueSize") or 0) for event in events) / sample_size
+    avg_duration = sum(float(event.get("durationHours") or 0) for event in events) / sample_size
+    avg_rework = sum(float(event.get("reworkCount") or 0) for event in events) / sample_size
+    avg_signature_wait = sum(float(event.get("waitingSignatureHours") or 0) for event in events) / sample_size
+    anomaly_flags = [event for event in events if (event.get("queueSize") or 0) >= 8 or (event.get("reworkCount") or 0) >= 3 or (event.get("waitingSignatureHours") or 0) >= 12 or (event.get("durationHours") or 0) >= 12]
+    anomaly_score = min(1.0, (avg_queue / 10.0) * 0.35 + (avg_rework / 5.0) * 0.35 + (avg_signature_wait / 24.0) * 0.3)
+    return {
+        "sampleSize": sample_size,
+        "avgQueue": avg_queue,
+        "avgDuration": avg_duration,
+        "avgRework": avg_rework,
+        "avgSignatureWait": avg_signature_wait,
+        "anomalyScore": anomaly_score,
+        "anomalies": anomaly_flags,
+    }
+
+
+def classify_risk(text: str, history_summary: dict[str, Any]) -> Literal["LOW", "NORMAL", "HIGH"]:
+    normalized = normalize_text(text)
+    urgent = any(word in normalized for word in ["urgente", "demora", "firma pendiente", "pendiente", "bloqueo", "vencimiento"])
+    if urgent and (history_summary["avgQueue"] >= 5 or history_summary["avgRework"] >= 2 or history_summary["anomalyScore"] >= 0.3):
+        return "HIGH"
+    if history_summary["anomalyScore"] >= 0.45 or history_summary["avgQueue"] >= 7 or history_summary["avgRework"] >= 3:
+        return "HIGH"
+    if urgent or history_summary["avgQueue"] >= 3:
+        return "NORMAL"
+    return "LOW"
+
+
+def classify_priority(text: str, risk: Literal["LOW", "NORMAL", "HIGH"], history_summary: dict[str, Any]) -> Literal["LOW", "NORMAL", "HIGH", "URGENT"]:
+    normalized = normalize_text(text)
+    if any(word in normalized for word in ["urgente", "inmediato", "ya", "ahora"]):
+        return "URGENT"
+    if risk == "HIGH" or history_summary["avgQueue"] >= 6 or history_summary["avgSignatureWait"] >= 8:
+        return "HIGH"
+    if risk == "NORMAL" or history_summary["avgQueue"] >= 3:
+        return "NORMAL"
+    return "LOW"
+
+
+def detect_anomalies(text: str, history: list[ExecutionLearningEvent], history_summary: dict[str, Any]) -> list[str]:
+    anomalies: list[str] = []
+    normalized = normalize_text(text)
+    if any(word in normalized for word in ["sin dato", "sin datos", "incompleto", "faltante"]):
+        anomalies.append("La solicitud tiene señales de datos incompletos.")
+    for event in history:
+        queue = float(event.queueSize or 0)
+        rework = float(event.reworkCount or 0)
+        wait = float(event.waitingSignatureHours or 0)
+        duration = float(event.durationHours or 0)
+        if queue >= 8:
+            anomalies.append(f"Cola alta detectada en {event.departmentId or event.taskLabel or 'un evento'} ({queue:g}).")
+        if rework >= 3:
+            anomalies.append(f"Retrabajo elevado en {event.departmentId or event.taskLabel or 'un evento'} ({rework:g}).")
+        if wait >= 12:
+            anomalies.append(f"Espera de firma prolongada en {event.departmentId or event.taskLabel or 'un evento'} ({wait:g}h).")
+        if duration >= 12:
+            anomalies.append(f"Duración atípica en {event.departmentId or event.taskLabel or 'un evento'} ({duration:g}h).")
+    if history_summary["anomalyScore"] >= 0.45:
+        anomalies.append("El perfil histórico general muestra una desviación material.")
+    return list(dict.fromkeys(anomalies))
+
+
+def compute_insight_confidence(route: str, history_summary: dict[str, Any], anomalies: list[str]) -> float:
+    confidence = 0.45
+    if route != "GENERAL":
+        confidence += 0.2
+    confidence += min(0.25, history_summary["sampleSize"] * 0.05)
+    confidence -= min(0.2, len(anomalies) * 0.04)
+    return max(0.1, min(0.95, confidence))
+
+
+def build_analyst_recommendations(route: str, risk: str, priority: str, anomalies: list[str]) -> list[str]:
+    recommendations = [f"Review queue ownership for route {route}."]
+    if risk == "HIGH":
+        recommendations.append("Escalate the procedure to a supervisor or apply a fast-track policy.")
+    if priority in {"HIGH", "URGENT"}:
+        recommendations.append("Prioritize the next operational task in the department inbox.")
+    if anomalies:
+        recommendations.append("Inspect anomaly signals before final assignment.")
+    return recommendations
+
+
+def build_report_draft(transcript: str, route: str, priority: Literal["LOW", "NORMAL", "HIGH", "URGENT"], context: dict[str, Any], policy_name: str | None) -> dict[str, str]:
+    title = f"Borrador de reporte - {policy_name or route.title()}"
+    body_lines = [
+        f"Resumen: {transcript}",
+        f"Ruta sugerida: {route}",
+        f"Prioridad: {priority}",
+    ]
+    if context:
+        body_lines.append(f"Contexto adicional: {json.dumps(context, ensure_ascii=False)}")
+    body_lines.append("Revisar campos obligatorios antes de emitir el informe final.")
+    return {"title": title, "body": "\n".join(body_lines)}
+
+
+def infer_report_type(transcript: str) -> str:
+    normalized = normalize_text(transcript)
+    if any(word in normalized for word in ["demora", "riesgo", "anomal", "cuello"]):
+        return "operational-risk"
+    if any(word in normalized for word in ["firma", "documento", "evidencia"]):
+        return "document-trace"
+    return "general-summary"
+
+
+def suggest_form_fields(transcript: str, form_fields: list[dict[str, Any]], context: dict[str, Any], policy_name: str | None) -> tuple[list[dict[str, Any]], list[str]]:
+    normalized = normalize_text(transcript)
+    suggestions: list[dict[str, Any]] = []
+    missing: list[str] = []
+    tokens = token_list(transcript)
+
+    for field in form_fields:
+        field_id = str(field.get("id") or field.get("name") or "field")
+        label_text = str(field.get("label") or field_id)
+        field_type = str(field.get("type") or "SHORT_TEXT").upper()
+        required = bool(field.get("required"))
+        options = field.get("options") or []
+        suggestion = infer_field_value(field_type, label_text, normalized, tokens, options)
+        if suggestion is not None:
+            suggestions.append({
+                "fieldId": field_id,
+                "label": label_text,
+                "type": field_type,
+                "suggestedValue": suggestion,
+                "confidence": 0.7 if field_type in {"SHORT_TEXT", "LONG_TEXT"} else 0.62,
+                "source": "fallback",
+            })
+        elif required:
+            missing.append(field_id)
+
+    if not form_fields:
+        suggestions.append({
+                "fieldId": "summary",
+                "label": "Resumen",
+                "type": "LONG_TEXT",
+                "suggestedValue": transcript[:240],
+                "confidence": 0.65,
+                "source": "fallback",
+            })
+        if policy_name:
+            suggestions.append({
+                "fieldId": "policyName",
+                "label": "Policy",
+                "type": "SHORT_TEXT",
+                "suggestedValue": policy_name,
+                "confidence": 0.95,
+                "source": "context",
+            })
+
+    if context and any(key in context for key in ["clientName", "clientCi", "procedureId"]):
+        for key in ["clientName", "clientCi", "procedureId"]:
+            if key in context and context[key] not in [None, ""]:
+                suggestions.append({
+                    "fieldId": key,
+                    "label": key,
+                    "type": "SHORT_TEXT",
+                    "suggestedValue": context[key],
+                    "confidence": 0.9,
+                    "source": "context",
+                })
+
+    return suggestions, list(dict.fromkeys(missing))
+
+
+def infer_field_value(field_type: str, label_text: str, normalized_text: str, tokens: set[str], options: list[Any]) -> Any:
+    if field_type in {"SHORT_TEXT", "LONG_TEXT"}:
+        if any(word in normalized_text for word in normalize_text(label_text).split() if word):
+            return label_text
+        return normalized_text[:160] if normalized_text else None
+    if field_type == "NUMBER":
+        match = re.search(r"\b(\d+(?:[.,]\d+)?)\b", normalized_text)
+        return match.group(1) if match else None
+    if field_type == "DATE":
+        match = re.search(r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b", normalized_text)
+        return match.group(1) if match else None
+    if field_type in {"SINGLE_CHOICE", "RESULT", "MULTIPLE_CHOICE"} and options:
+        normalized_options = [normalize_text(str(option)) for option in options]
+        for option, normalized_option in zip(options, normalized_options):
+            if normalized_option and normalized_option in normalized_text:
+                return option
+        if any(word in normalized_text for word in ["aprobad", "aprobacion", "aprobación"]):
+            return options[0]
+        if len(options) > 1 and any(word in normalized_text for word in ["observ", "revis", "ajust"]):
+            return options[1]
+        if len(options) > 2 and any(word in normalized_text for word in ["rechaz", "deneg"]):
+            return options[-1]
+    if field_type == "CHECKBOX":
+        return any(word in normalized_text for word in ["si", "sí", "acepto", "confirmo", "de acuerdo"])
+    if field_type == "SIGNATURE":
+        return "Firma solicitada"
+    return None
 
 
 def learning_key(policy_name: str | None) -> str:

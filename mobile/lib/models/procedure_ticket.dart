@@ -63,6 +63,50 @@ class ProcedureTicket {
   }
 }
 
+class ProcedureRepositoryDocument {
+  final String id;
+  final String documentId;
+  final int version;
+  final String originalFileName;
+  final String? contentType;
+  final int size;
+  final String? createdBy;
+  final String? traceAction;
+  final String? traceNote;
+  final DateTime? createdAt;
+  final String? downloadUri;
+
+  ProcedureRepositoryDocument({
+    required this.id,
+    required this.documentId,
+    required this.version,
+    required this.originalFileName,
+    this.contentType,
+    required this.size,
+    this.createdBy,
+    this.traceAction,
+    this.traceNote,
+    this.createdAt,
+    this.downloadUri,
+  });
+
+  factory ProcedureRepositoryDocument.fromJson(Map<String, dynamic> json) {
+    return ProcedureRepositoryDocument(
+      id: json['id'] ?? '',
+      documentId: json['documentId'] ?? '',
+      version: json['version'] ?? 1,
+      originalFileName: json['originalFileName'] ?? 'Documento',
+      contentType: json['contentType'],
+      size: json['size'] ?? 0,
+      createdBy: json['createdBy'],
+      traceAction: json['traceAction'],
+      traceNote: json['traceNote'],
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt']) : null,
+      downloadUri: json['downloadUri'],
+    );
+  }
+}
+
 class SignatureRequest {
   final String taskId;
   final String fieldId;

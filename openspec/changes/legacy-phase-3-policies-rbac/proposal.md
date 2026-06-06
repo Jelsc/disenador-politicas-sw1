@@ -1,3 +1,4 @@
+<!-- Migrated from `.sdd/proposals/phase-3-policies-rbac.md`. Legacy content preserved. -->
 # Proposal: Phase 3 - Policies Module & Frontend RBAC
 
 ## Intent

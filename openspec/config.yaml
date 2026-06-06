@@ -1,0 +1,55 @@
+strict_tdd: true
+context: |
+  frontend is a Node.js/TypeScript, Node.js/TypeScript ESM, Python project.
+  Detected markers: frontend/package.json, frontend/tsconfig.json, frontend/npm package manager, frontend\.angular\cache\21.2.8\frontend\vite\deps/package.json, frontend\.angular\cache\21.2.8\frontend\vite\deps/npm package manager.
+  Package managers: npm.
+  Additional evidence: Test-like files detected (2); examples: frontend\tsconfig.spec.json, mobile\test\widget_test.dart.
+  Primary test command: cd frontend && npm test.
+  Unit tests: package script (cd frontend && npm test).
+  Integration tests: none.
+  E2E tests: none.
+rules:
+  proposal:
+    require_problem_statement: true
+  spec:
+    require_acceptance_criteria: true
+  design:
+    require_tradeoffs: true
+  tasks:
+    protect_review_workload: true
+  apply:
+    test_command: "cd frontend && npm test"
+  verify:
+    test_command: "cd frontend && npm test"
+testing:
+  detected: "2026-06-04"
+  runner:
+    command: "cd frontend && npm test"
+    framework: "package script"
+  layers:
+    unit: "package script"
+    integration: ""
+    e2e: ""
+  commands:
+    unit:
+      - scope: "frontend"
+        command: "cd frontend && npm test"
+        framework: "package script"
+    integration:
+      []
+    e2e:
+      []
+  coverage:
+    command: ""
+    commands:
+      []
+quality:
+  lint: ""
+  lint_commands:
+    []
+  typecheck: ""
+  typecheck_commands:
+    []
+  format: ""
+  format_commands:
+    []

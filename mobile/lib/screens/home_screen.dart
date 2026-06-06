@@ -9,12 +9,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/client_notification.dart';
 import '../models/procedure_ticket.dart';
 import '../services/api_service.dart';
+import 'ai_request_screen.dart';
 import 'login_screen.dart';
 import 'notifications_screen.dart';
 import 'procedure_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final ApiService? apiService;
+  final bool skipNotificationSetup;
+  final List<ProcedureTicket>? initialProcedures;
+  final List<ClientNotification>? initialNotifications;
+  final int? initialUnreadCount;
+
+  const HomeScreen({
+    super.key,
+    this.apiService,
+    this.skipNotificationSetup = false,
+    this.initialProcedures,
+    this.initialNotifications,
+    this.initialUnreadCount,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -23,7 +37,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
-  final ApiService _api = ApiService();
+  ApiService get _api => widget.apiService ?? ApiService();
 
   List<ProcedureTicket> _procedures = [];
   List<ClientNotification> _notifications = [];
@@ -33,8 +47,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _setupNotifications();
-    _loadDashboard();
+    if (widget.skipNotificationSetup) {
+      _seedInitialState();
+    } else {
+      _setupNotifications();
+      _loadDashboard();
+    }
+  }
+
+  void _seedInitialState() {
+    _procedures = widget.initialProcedures ?? [];
+    _notifications = widget.initialNotifications ?? [];
+    _unreadCount = widget.initialUnreadCount ?? _notifications.where((notification) => !notification.read).length;
+    _isLoading = false;
   }
 
   Future<String?> _token() async {
@@ -153,6 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
           procedure: procedure!,
           initialTaskId: taskId,
           initialFieldId: fieldId,
+          apiService: _api,
         ),
       ),
     );
@@ -216,6 +242,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Solicitudes IA',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => AiRequestScreen()),
+              );
+            },
+            icon: const Icon(Icons.auto_awesome_outlined),
+          ),
           IconButton(
             tooltip: 'Notificaciones',
             onPressed: _openNotifications,
@@ -286,6 +322,7 @@ class _HomeScreenState extends State<HomeScreen> {
           else
             ...latest.map(
               (notification) => ListTile(
+                key: Key('notification-item-${notification.id}'),
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 leading: _notificationIcon(notification.type),
@@ -310,6 +347,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildProcedureCard(ProcedureTicket procedure) {
     final hasSignature = procedure.pendingSignatureRequests.isNotEmpty;
     return Card(
+      key: Key('procedure-card-${procedure.id}'),
       elevation: 0,
       color: const Color(0xFFFFFCF6),
       margin: const EdgeInsets.only(bottom: 12),

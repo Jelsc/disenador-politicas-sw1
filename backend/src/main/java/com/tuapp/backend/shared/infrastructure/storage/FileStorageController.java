@@ -60,16 +60,10 @@ public class FileStorageController {
     public ResponseEntity<Resource> downloadFile(@PathVariable String fileName, HttpServletRequest request) {
         Resource resource = fileStorageService.loadFileAsResource(fileName);
 
-        String contentType = null;
-        try {
-            contentType = request.getServletContext().getMimeType(resource.getFile().getAbsolutePath());
-        } catch (IOException ex) {
-            // fallback
-        }
-
-        if (contentType == null) {
-            contentType = "application/octet-stream";
-        }
+        String contentType = fileStorageService.getContentType(fileName)
+                .orElseGet(() -> request.getServletContext().getMimeType(fileName) != null
+                        ? request.getServletContext().getMimeType(fileName)
+                        : "application/octet-stream");
 
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))

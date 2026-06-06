@@ -59,13 +59,18 @@ services:
     environment:
       - AI_PROVIDER=${AI_PROVIDER:-ollama}
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
-      - OLLAMA_TIMEOUT_SECONDS=${OLLAMA_TIMEOUT_SECONDS:-45}
-      - AI_NEURAL_MAX_RULE_NODES=${AI_NEURAL_MAX_RULE_NODES:-80}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+      - OLLAMA_TIMEOUT_SECONDS=${OLLAMA_TIMEOUT_SECONDS:-300}
+      - AI_CORE_MODEL_PATH=${AI_CORE_MODEL_PATH:-/app/models/ai-core.keras}
+      - WHISPER_MODEL=${WHISPER_MODEL:-tiny}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
     depends_on:
       - ollama
     env_file:
       - .env
+    volumes:
+      - ai_models:/app/models
 
   ollama:
     image: ollama/ollama:latest
@@ -118,3 +123,4 @@ volumes:
   certbot_data:
   certbot_www:
   ollama_data:
+  ai_models:

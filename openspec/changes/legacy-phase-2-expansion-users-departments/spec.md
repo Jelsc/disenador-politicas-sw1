@@ -1,3 +1,4 @@
+<!-- Migrated from `.sdd/specs/phase-2-expansion-users-departments.md`. Legacy content preserved. -->
 # Especificación: Expansión Fase 2 - Gestión de Usuarios y Departamentos
 
 ## 1. Intención y Contexto

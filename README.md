@@ -66,6 +66,16 @@ WS_URL=wss://api.tudominio.com/ws
 
 # 4. CORS: Autorizamos al backend para que reciba peticiones exclusivamente desde nuestro dominio frontend.
 ALLOWED_ORIGINS=https://app.tudominio.com
+
+# 5. Documentos: S3 compatible para adjuntos y repositorio documental.
+S3_BUCKET=policies-documents
+S3_REGION=us-east-1
+S3_ENDPOINT=
+S3_ACCESS_KEY=
+S3_SECRET_KEY=
+
+# 6. Bloqueos: TTL para las ediciones colaborativas.
+POLICY_LOCK_TTL_SECONDS=120
 ```
 
 ## Paso 4: Desplegar
@@ -112,3 +122,9 @@ Angular → FastAPI AI Service → Ollama local → validador determinístico de
 ```
 
 El modelo ayuda a comprender y razonar, pero el sistema sigue validando estructura, departamentos, firmas, archivos y rutas antes de aplicar cambios.
+
+## Documentos y colaboración
+
+- Los documentos se guardan en S3 o un servicio compatible.
+- El backend puede conservar un fallback local de desarrollo, pero la ruta válida de producción es S3.
+- La edición de políticas usa bloqueos Redis con TTL para evitar ediciones simultáneas.

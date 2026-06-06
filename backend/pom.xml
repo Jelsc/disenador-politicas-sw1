@@ -94,6 +94,13 @@
 			<version>9.2.0</version>
 		</dependency>
 
+		<!-- S3-compatible document storage -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>2.25.58</version>
+		</dependency>
+
 		<!-- Testing -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

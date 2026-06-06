@@ -12,918 +12,30 @@ import { NgIconComponent } from '@ng-icons/core';
 import { PolicyAutosave, PolicyChangeLog, PolicyEditorCandidate } from '../../models/policy.model';
 import { UiNotificationService } from '../../../core/services/ui-notification.service';
 import { OperationService } from '../../../execution/services/operation.service';
-
-type BoardNodeType = 'START' | 'TASK' | 'GATEWAY' | 'PARALLEL' | 'JOIN' | 'END';
-type TaskFormFieldType = 'SHORT_TEXT' | 'LONG_TEXT' | 'NUMBER' | 'DATE' | 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'CHECKBOX' | 'FILE' | 'RESULT' | 'SIGNATURE';
-
-interface TaskFormField {
-  id: string;
-  type: TaskFormFieldType;
-  label: string;
-  placeholder?: string;
-  required?: boolean;
-  order: number;
-  visibleToClient?: boolean;
-  notifyClient?: boolean;
-  voiceInputEnabled?: boolean;
-  usedForDecision?: boolean;
-  options?: string[];
-  minLength?: number;
-  maxLength?: number;
-  minValue?: number;
-  maxValue?: number;
-  minDate?: string;
-  maxDate?: string;
-  allowFutureDate?: boolean;
-  unit?: string;
-  allowedFormats?: string[];
-  maxFiles?: number;
-  maxFileSizeMb?: number;
-  requiresCommentOnReject?: boolean;
-  requiresCommentOnObserve?: boolean;
-  signatureMessage?: string;
-  signatureDeadlineHours?: number;
-}
-
-interface TaskFormDefinition {
-  title: string;
-  fields: TaskFormField[];
-}
-
-interface NodeConfig {
-  description?: string;
-  startCondition?: string;
-  initialMessage?: string;
-  initialStatus?: string;
-  finalStatus?: 'COMPLETED' | 'REJECTED' | 'CANCELLED';
-  customerMessage?: string;
-  generatesClientNotification?: boolean;
-  requiresFinalDocument?: boolean;
-  taskType?: 'MANUAL' | 'OPERATIVE' | 'ANALYTICAL' | 'REVISION' | 'APPROVAL' | 'SIGNATURE' | 'DOCUMENTAL' | 'NOTIFICATION' | 'NORMAL' | 'PARALLEL';
-  priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
-  requiresSignature?: boolean;
-  allowsDocuments?: boolean;
-  visibleToClient?: boolean;
-  notifyClient?: boolean;
-  estimatedTime?: string;
-  dynamicForm?: string;
-  requiredFields?: string;
-  form?: TaskFormDefinition;
-  evaluatedField?: string;
-  conditionType?: 'BOOLEAN' | 'SELECTION' | 'NUMBER';
-  condition?: string;
-  branches?: string;
-  defaultBranch?: string;
-  parallelBranches?: string;
-  executionMode?: 'ALL';
-  joinRule?: string;
-}
-
-interface BoardNode {
-  id: string;
-  departmentId: string;
-  type: BoardNodeType;
-  label: string;
-  x: number;
-  y: number;
-  config?: NodeConfig;
-}
-
-interface BoardConnector {
-  id: string;
-  sourceId: string;
-  targetId: string;
-}
-
-interface PolicyBoardRules {
-  version: 1;
-  departments: Department[];
-  laneHeights?: Record<string, number>;
-  nodes: BoardNode[];
-  connectors: BoardConnector[];
-}
-
-interface PolicyVersionItem {
-  id: string;
-  revision: number;
-  versionNumber: number;
-  name: string;
-  version?: string;
-  createdAt: string;
-  createdBy?: string;
-  published?: boolean;
-  publishedAt?: string;
-  changelogSummary?: string;
-  diagramSnapshotJson?: string;
-  rules?: string;
-  status?: string;
-}
-
-interface SimulationCheck {
-  label: string;
-  status: 'pending' | 'running' | 'ok' | 'warning' | 'error';
-  detail: string;
-}
-
-interface SimulationReport {
-  startedAt: number;
-  finishedAt?: number;
-  durationMs?: number;
-  status: 'idle' | 'running' | 'ok' | 'warning' | 'error';
-  bottlenecks: string[];
-  errors: string[];
-  warnings: string[];
-  checkedPaths: number;
-}
-
-interface AiChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  recommendations?: string[];
-}
-
-const EMPTY_RULES: PolicyBoardRules = { version: 1, departments: [], nodes: [], connectors: [] };
+import {
+  AiChatMessage,
+  BoardConnector,
+  BoardNode,
+  BoardNodeType,
+  ConnectorKind,
+  ConnectorVariantItem,
+  EMPTY_RULES,
+  NodeConfig,
+  PolicyBoardRules,
+  PolicyVersionItem,
+  SimulationCheck,
+  SimulationReport,
+  TaskFormDefinition,
+  TaskFormField,
+  TaskFormFieldType,
+  UmlNodePaletteItem
+} from './policy-form.models';
 
 @Component({
   selector: 'app-policy-form',
   standalone: true,
   imports: [CommonModule, FormsModule, ReactiveFormsModule, RouterModule, NgIconComponent],
-  template: `
-    <div class="board-layout">
-      <header class="board-header" [formGroup]="policyForm">
-        <div class="header-left">
-          <button class="btn-icon" routerLink="/policies" title="Volver">
-            <ng-icon name="lucideArrowLeft"></ng-icon>
-          </button>
-          <div>
-            <div class="policy-title-row">
-              <input class="title-input" formControlName="name" placeholder="Nombre de la política" [readOnly]="editingBlocked()" />
-              <span class="status-pill" [class.locked]="publishedLocked()" [class.readonly]="isReadOnly()">{{ isReadOnly() ? 'Solo lectura' : publishedLocked() ? 'Publicada' : policyForm.value.status === 'EN_REVISION' ? 'En revisión' : 'Borrador' }}</span>
-            </div>
-            <div class="policy-state-line">
-              <span>Pizarra colaborativa</span>
-              <span>·</span>
-              <span>Carriles, tareas, decisiones y publicación controlada</span>
-              <span class="state-chip" *ngIf="autosavePending()">Autosave pendiente de versión</span>
-              <span class="state-chip warning" *ngIf="publishedLocked() && !isReadOnly()">Congelada: creá un borrador para editar</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="header-command-bar">
-          <div class="command-group state-group">
-            <span class="command-label">Estado</span>
-            <select class="status-select" formControlName="status" [disabled]="editingBlocked()">
-              <option value="BORRADOR">Borrador</option>
-              <option value="EN_REVISION">En revisión</option>
-            </select>
-          </div>
-
-          <div class="command-group">
-            <span class="command-label">Publicación</span>
-            <button class="command-button emphasized" type="button" title="Versiones, historial y publicación" (click)="toggleVersionPanel()">
-              Versiones / publicar
-            </button>
-            <button class="command-button" type="button" *ngIf="publishedLocked() && !isReadOnly()" (click)="duplicatePublishedVersion()">Nuevo borrador</button>
-          </div>
-
-          <div class="command-group">
-            <span class="command-label">Diseño</span>
-            <button class="command-button" type="button" title="Analizar el diseño actual" (click)="simulateCurrentDesign()">Simular</button>
-            <button class="command-button ai-command" type="button" title="Asistente IA de la pizarra" (click)="toggleAiPanel()">Asistente IA</button>
-            <button class="command-button" type="button" *ngIf="isEditMode() && canManageInvitations() && !isReadOnly()" (click)="toggleInvitePanel()">Invitar</button>
-          </div>
-
-          <button class="btn-primary save-command" *ngIf="!isReadOnly()" (click)="onSubmit()" [disabled]="loading() || policyForm.invalid || publishedLocked()">
-            {{ loading() ? 'Guardando...' : 'Guardar borrador' }}
-          </button>
-        </div>
-      </header>
-
-      <div class="board-workbench">
-        <aside class="tool-panel" [formGroup]="policyForm">
-          <section class="panel-section compact-section">
-            <div class="section-inline-header">
-              <h3>Herramientas</h3>
-              <span class="panel-mini-help">Paleta rápida</span>
-            </div>
-
-            <div class="component-grid">
-              <button class="tool-tile" [disabled]="editingBlocked()" draggable="true" (dragstart)="startComponentDrag('START', $event)" (dragend)="finishPaletteDrag()"><ng-icon name="lucidePlay"></ng-icon><span>Inicio</span></button>
-              <button class="tool-tile" [disabled]="editingBlocked()" draggable="true" (dragstart)="startComponentDrag('TASK', $event)" (dragend)="finishPaletteDrag()"><ng-icon name="lucideSettings"></ng-icon><span>Tarea</span></button>
-              <button class="tool-tile" [disabled]="editingBlocked()" draggable="true" (dragstart)="startComponentDrag('GATEWAY', $event)" (dragend)="finishPaletteDrag()"><ng-icon name="lucideDiamond"></ng-icon><span>Decisión</span></button>
-              <button class="tool-tile" [disabled]="editingBlocked()" draggable="true" (dragstart)="startComponentDrag('PARALLEL', $event)" (dragend)="finishPaletteDrag()"><ng-icon name="lucideWorkflow"></ng-icon><span>Paralelo</span></button>
-              <button class="tool-tile" [disabled]="editingBlocked()" draggable="true" (dragstart)="startComponentDrag('JOIN', $event)" (dragend)="finishPaletteDrag()"><ng-icon name="lucideWorkflow"></ng-icon><span>Unión</span></button>
-              <button class="tool-tile" [disabled]="editingBlocked()" draggable="true" (dragstart)="startComponentDrag('END', $event)" (dragend)="finishPaletteDrag()"><ng-icon name="lucideSquare"></ng-icon><span>Fin</span></button>
-            </div>
-
-            <div class="quick-actions-row">
-              <button class="compact-action" [class.active]="connectMode()" [disabled]="editingBlocked()" (click)="toggleConnectMode()">
-                <ng-icon name="lucideWorkflow"></ng-icon>
-                <span>{{ connectMode() ? 'Conectando' : 'Conectar' }}</span>
-              </button>
-              <button class="compact-action danger" [disabled]="editingBlocked() || !selectedNode()" (click)="deleteSelectedNodeFromTools()">
-                <ng-icon name="lucideTrash2"></ng-icon>
-                <span>Borrar nodo</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="panel-section compact-section">
-            <div class="section-inline-header">
-              <h3>Departamentos</h3>
-              <button class="collapse-toggle" type="button" (click)="toggleDepartmentsPanel()">
-                {{ departmentsPanelOpen() ? 'Ocultar' : 'Mostrar' }}
-              </button>
-            </div>
-            <div class="department-list" *ngIf="departmentsPanelOpen()">
-              <button
-                class="department-chip compact-chip"
-                *ngFor="let department of availableDepartments()"
-                [disabled]="editingBlocked()"
-                draggable="true"
-                (dragstart)="startDepartmentDrag(department.id, $event)"
-                (dragend)="finishPaletteDrag()"
-                (click)="addDepartmentLane(department)"
-              >
-                <span>{{ department.name }}</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="panel-section compact-section description-section">
-            <div class="section-inline-header">
-              <label>Descripción</label>
-            </div>
-            <textarea class="description-input compact-description" formControlName="description" rows="3" placeholder="Qué resuelve esta política..."></textarea>
-          </section>
-        </aside>
-
-        <main class="board-surface">
-          <div class="board-topbar">
-            <span class="surface-label">Pizarra colaborativa</span>
-            <span class="surface-hint">Base lista para sincronizar nodes/connectors por WebSocket.</span>
-            <span class="surface-hint" *ngIf="policyVersions().length">{{ policyVersions().length }} versión(es)</span>
-            <span class="surface-hint" *ngIf="collaboration.usersPresent().length">En pizarra: {{ collaboration.usersPresent().join(', ') }}</span>
-            <span class="validation-message" *ngIf="validationMessage()">{{ validationMessage() }}</span>
-            <div class="zoom-controls">
-              <button (click)="zoomOut()">−</button>
-              <span>{{ zoomPercent() }}%</span>
-              <button (click)="zoomIn()">+</button>
-              <button (click)="resetZoom()">Reset</button>
-            </div>
-          </div>
-
-          <div
-            class="lanes-canvas"
-            [class.panning]="isPanningBoard()"
-            (contextmenu)="$event.preventDefault()"
-            (pointerdown)="startBoardPan($event)"
-            (dragover)="handleBoardDragOver($event)"
-            (dragleave)="clearLaneHighlight()"
-            (drop)="dropDepartmentOnBoard($event)"
-          >
-            <div class="board-content" [style.transform]="boardTransform()" [style.height.px]="boardContentHeight()">
-            <svg class="connector-layer">
-              <defs>
-                <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                  <path d="M 0 0 L 10 5 L 0 10 z"></path>
-                </marker>
-              </defs>
-              <path *ngFor="let connector of connectors()" class="connector-path" [class.removable]="!editingBlocked()" [attr.d]="connectorPath(connector)" marker-end="url(#arrow)" (click)="removeConnector(connector.id, $event)"></path>
-            </svg>
-
-            <div class="empty-board" *ngIf="boardDepartments().length === 0">
-              <ng-icon name="lucideBuilding2"></ng-icon>
-              <h2>Elegí los departamentos participantes</h2>
-              <p>Arrastrá un departamento desde el panel izquierdo para crear el primer carril de esta política.</p>
-            </div>
-
-            <section class="lane" *ngFor="let department of boardDepartments(); let i = index" [class.drag-target]="isLaneHighlightActive() && hoveredLaneId() === department.id" [style.top.px]="laneTop(i)" [style.height.px]="laneHeightFor(department.id)">
-              <div class="lane-title">
-                <span>{{ department.name }}</span>
-                <button class="lane-remove" type="button" *ngIf="!editingBlocked()" (pointerdown)="$event.stopPropagation()" (click)="removeDepartmentLane(department.id, $event)">×</button>
-              </div>
-              <div class="lane-description">{{ department.description || 'Departamento disponible para el flujo' }}</div>
-              <button class="lane-resize" type="button" *ngIf="!editingBlocked()" (pointerdown)="startLaneResize(department.id, $event)"></button>
-            </section>
-
-            <article
-              *ngFor="let node of nodes()"
-              class="board-node"
-              [class.selected]="connectorSourceId() === node.id"
-              [ngClass]="'node-' + node.type.toLowerCase()"
-              [style.left.px]="node.x"
-              [style.top.px]="node.y"
-              (pointerdown)="startDrag(node, $event)"
-              (click)="handleNodeClick(node, $event)"
-              (dblclick)="openNodeConfig(node, $event)"
-            >
-               <div class="node-type">{{ node.type }}</div>
-                <input class="node-label" [readOnly]="editingBlocked()" [(ngModel)]="node.label" (ngModelChange)="syncRules()" (pointerdown)="$event.stopPropagation()" />
-                <div class="node-meta" *ngIf="node.type === 'TASK' && node.config?.form?.fields?.length">✔ Formulario configurado · {{ node.config?.form?.fields?.length }} campo(s)</div>
-                <button class="node-remove" type="button" *ngIf="!editingBlocked()" (pointerdown)="stopNodeAction($event)" (click)="removeNode(node.id, $event)">×</button>
-            </article>
-            </div>
-          </div>
-
-          <section class="task-form-editor" *ngIf="taskFormEditorNode() as taskNode">
-            <aside class="form-palette">
-              <div class="form-editor-header compact">
-                <div>
-                  <h3>Formulario del funcionario</h3>
-                  <p>Estos campos los completa el operador. El cliente queda para seguimiento y firma puntual.</p>
-                </div>
-              </div>
-              <button class="form-field-tool" type="button" *ngFor="let fieldType of taskFormFieldTypes" [disabled]="editingBlocked()" (click)="addTaskFormField(fieldType.type)">
-                <strong>{{ fieldType.label }}</strong>
-                <small>{{ fieldType.help }}</small>
-              </button>
-            </aside>
-
-            <main class="form-canvas">
-              <div class="form-editor-header">
-                <div>
-                  <span class="surface-label">Formulario operativo del funcionario</span>
-                  <h2>{{ taskNode.label }}</h2>
-                  <p>{{ departmentName(taskNode.departmentId) }} · {{ taskNode.config?.taskType || 'MANUAL' }}</p>
-                </div>
-                <div class="form-editor-actions">
-                  <button class="restore-button" type="button" (click)="selectTaskFormRoot()">Configurar tarea</button>
-                  <button class="btn-primary" type="button" (click)="closeTaskFormEditor()">Guardar formulario</button>
-                </div>
-              </div>
-
-              <div class="form-paper">
-                <label>Título del formulario</label>
-                <input class="config-input form-title-input" [ngModel]="taskNode.config?.form?.title || ('Formulario de ' + taskNode.label)" (ngModelChange)="updateTaskFormTitle($event)" [readOnly]="editingBlocked()" />
-
-                <div class="empty-form" *ngIf="taskFormFields(taskNode).length === 0">
-                  Agregá campos operativos desde la izquierda. Podés repetir tipos: varios textos, varios archivos o varios checkbox.
-                </div>
-
-                <article class="form-field-card" *ngFor="let field of taskFormFields(taskNode); let i = index" [class.selected]="selectedFormFieldId() === field.id" (click)="selectTaskFormField(field.id)">
-                  <div>
-                    <strong>{{ field.label }}</strong>
-                    <p>{{ formFieldLabel(field.type) }}<span *ngIf="field.required"> · Obligatorio</span><span *ngIf="field.visibleToClient"> · Reflejado al cliente</span><span *ngIf="field.usedForDecision"> · Usado por decisión</span></p>
-                  </div>
-                  <div class="field-card-actions">
-                    <button type="button" [disabled]="i === 0 || editingBlocked()" (click)="moveTaskFormField(field.id, -1, $event)">↑</button>
-                    <button type="button" [disabled]="i === taskFormFields(taskNode).length - 1 || editingBlocked()" (click)="moveTaskFormField(field.id, 1, $event)">↓</button>
-                    <button type="button" [disabled]="editingBlocked()" (click)="duplicateTaskFormField(field.id, $event)">Duplicar</button>
-                    <button type="button" [disabled]="editingBlocked()" (click)="removeTaskFormField(field.id, $event)">×</button>
-                  </div>
-                </article>
-              </div>
-            </main>
-
-            <aside class="form-config">
-              <div class="form-editor-header compact">
-                <div>
-                  <h3>{{ selectedTaskFormField() ? 'Configuración del campo' : 'Configuración de tarea' }}</h3>
-                  <p>{{ selectedTaskFormFieldLabel() || 'Reglas de ejecución del funcionario y visibilidad externa' }}</p>
-                </div>
-                <button class="config-close" type="button" (click)="closeTaskFormEditor()">×</button>
-              </div>
-
-              <ng-container *ngIf="selectedTaskFormField() as field; else taskSettings">
-                <label>Etiqueta</label>
-                <input class="config-input" [ngModel]="field.label" (ngModelChange)="updateTaskFormField(field.id, { label: $event })" [readOnly]="editingBlocked()" />
-                <label *ngIf="supportsPlaceholder(field.type)">Placeholder</label>
-                <input *ngIf="supportsPlaceholder(field.type)" class="config-input" [ngModel]="field.placeholder || ''" (ngModelChange)="updateTaskFormField(field.id, { placeholder: $event })" [readOnly]="editingBlocked()" />
-                <label class="config-check"><input type="checkbox" [ngModel]="field.required || false" (ngModelChange)="updateTaskFormField(field.id, { required: $event })" [disabled]="editingBlocked()" /> Obligatorio</label>
-                <label class="config-check"><input type="checkbox" [ngModel]="field.visibleToClient || false" (ngModelChange)="updateTaskFormField(field.id, { visibleToClient: $event })" [disabled]="editingBlocked()" /> Reflejar valor al cliente</label>
-                <label class="config-check"><input type="checkbox" [ngModel]="field.notifyClient || false" (ngModelChange)="updateTaskFormField(field.id, { notifyClient: $event })" [disabled]="editingBlocked()" /> Notificar al cliente por este campo</label>
-                <label class="config-check" *ngIf="supportsVoice(field.type)"><input type="checkbox" [ngModel]="field.voiceInputEnabled || false" (ngModelChange)="updateTaskFormField(field.id, { voiceInputEnabled: $event })" [disabled]="editingBlocked()" /> Permitir dictado por voz</label>
-                <label class="config-check" *ngIf="supportsDecision(field.type)"><input type="checkbox" [ngModel]="field.usedForDecision || false" (ngModelChange)="updateTaskFormField(field.id, { usedForDecision: $event })" [disabled]="editingBlocked()" /> Usar para decisión</label>
-
-                <ng-container *ngIf="supportsOptions(field.type)">
-                  <label>Opciones</label>
-                  <textarea class="config-input" rows="4" [ngModel]="optionsText(field)" (ngModelChange)="updateTaskFormField(field.id, { options: splitOptions($event) })" [readOnly]="editingBlocked()"></textarea>
-                </ng-container>
-
-                <ng-container *ngIf="field.type === 'SHORT_TEXT' || field.type === 'LONG_TEXT'">
-                  <label>Longitud máxima</label>
-                  <input class="config-input" type="number" [ngModel]="field.maxLength || ''" (ngModelChange)="updateTaskFormField(field.id, { maxLength: numberValue($event) })" [readOnly]="editingBlocked()" />
-                </ng-container>
-
-                <ng-container *ngIf="field.type === 'NUMBER'">
-                  <label>Valor mínimo</label>
-                  <input class="config-input" type="number" [ngModel]="field.minValue || ''" (ngModelChange)="updateTaskFormField(field.id, { minValue: numberValue($event) })" [readOnly]="editingBlocked()" />
-                  <label>Valor máximo</label>
-                  <input class="config-input" type="number" [ngModel]="field.maxValue || ''" (ngModelChange)="updateTaskFormField(field.id, { maxValue: numberValue($event) })" [readOnly]="editingBlocked()" />
-                  <label>Unidad</label>
-                  <input class="config-input" [ngModel]="field.unit || ''" (ngModelChange)="updateTaskFormField(field.id, { unit: $event })" [readOnly]="editingBlocked()" />
-                </ng-container>
-
-                <ng-container *ngIf="field.type === 'DATE'">
-                  <label>Fecha mínima</label>
-                  <input class="config-input" type="date" [ngModel]="field.minDate || ''" (ngModelChange)="updateTaskFormField(field.id, { minDate: $event })" [readOnly]="editingBlocked()" />
-                  <label>Fecha máxima</label>
-                  <input class="config-input" type="date" [ngModel]="field.maxDate || ''" (ngModelChange)="updateTaskFormField(field.id, { maxDate: $event })" [readOnly]="editingBlocked()" />
-                  <label class="config-check"><input type="checkbox" [ngModel]="field.allowFutureDate || false" (ngModelChange)="updateTaskFormField(field.id, { allowFutureDate: $event })" [disabled]="editingBlocked()" /> Permitir fecha futura</label>
-                </ng-container>
-
-                <ng-container *ngIf="field.type === 'FILE'">
-                  <label>Formatos permitidos</label>
-                  <input class="config-input" placeholder="pdf,jpg,png" [ngModel]="(field.allowedFormats || []).join(', ')" (ngModelChange)="updateTaskFormField(field.id, { allowedFormats: splitCsv($event) })" [readOnly]="editingBlocked()" />
-                  <label>Cantidad máxima</label>
-                  <input class="config-input" type="number" [ngModel]="field.maxFiles || 1" (ngModelChange)="updateTaskFormField(field.id, { maxFiles: numberValue($event) })" [readOnly]="editingBlocked()" />
-                  <label>Tamaño máximo por archivo (MB)</label>
-                  <input class="config-input" type="number" [ngModel]="field.maxFileSizeMb || 10" (ngModelChange)="updateTaskFormField(field.id, { maxFileSizeMb: numberValue($event) })" [readOnly]="editingBlocked()" />
-                </ng-container>
-
-                <ng-container *ngIf="field.type === 'RESULT'">
-                  <label class="config-check"><input type="checkbox" [ngModel]="field.requiresCommentOnReject || false" (ngModelChange)="updateTaskFormField(field.id, { requiresCommentOnReject: $event })" [disabled]="editingBlocked()" /> Requiere observación si rechaza</label>
-                  <label class="config-check"><input type="checkbox" [ngModel]="field.requiresCommentOnObserve || false" (ngModelChange)="updateTaskFormField(field.id, { requiresCommentOnObserve: $event })" [disabled]="editingBlocked()" /> Requiere observación si observa</label>
-                </ng-container>
-
-                <ng-container *ngIf="field.type === 'SIGNATURE'">
-                  <label>Mensaje para solicitar firma al cliente</label>
-                  <textarea class="config-input" rows="3" [ngModel]="field.signatureMessage || ''" (ngModelChange)="updateTaskFormField(field.id, { signatureMessage: $event })" [readOnly]="editingBlocked()"></textarea>
-                  <label>Tiempo límite para firma touch (horas)</label>
-                  <input class="config-input" type="number" [ngModel]="field.signatureDeadlineHours || ''" (ngModelChange)="updateTaskFormField(field.id, { signatureDeadlineHours: numberValue($event) })" [readOnly]="editingBlocked()" />
-                </ng-container>
-              </ng-container>
-
-              <ng-template #taskSettings>
-                <label>Nombre de la tarea</label>
-                <input class="config-input" [ngModel]="taskNode.label" (ngModelChange)="updateTaskNodeLabel($event)" [readOnly]="editingBlocked()" />
-                <label>Descripción</label>
-                <textarea class="config-input" rows="3" [ngModel]="taskNode.config?.description || ''" (ngModelChange)="updateTaskNodeConfig({ description: $event })" [readOnly]="editingBlocked()"></textarea>
-                <label>Tipo de tarea</label>
-                <select class="config-input" [ngModel]="taskNode.config?.taskType || 'MANUAL'" (ngModelChange)="updateTaskNodeConfig({ taskType: $event })" [disabled]="editingBlocked()">
-                  <option value="MANUAL">Manual</option>
-                  <option value="OPERATIVE">Operativa</option>
-                  <option value="ANALYTICAL">Creativa / Analítica</option>
-                  <option value="REVISION">Revisión</option>
-                  <option value="APPROVAL">Aprobación</option>
-                  <option value="SIGNATURE">Firma cliente</option>
-                  <option value="DOCUMENTAL">Documental</option>
-                  <option value="NOTIFICATION">Notificación</option>
-                </select>
-                <label>Tiempo estimado</label>
-                <input class="config-input" placeholder="Ej: 12 horas" [ngModel]="taskNode.config?.estimatedTime || ''" (ngModelChange)="updateTaskNodeConfig({ estimatedTime: $event })" [readOnly]="editingBlocked()" />
-                <label>Prioridad</label>
-                <select class="config-input" [ngModel]="taskNode.config?.priority || 'NORMAL'" (ngModelChange)="updateTaskNodeConfig({ priority: $event })" [disabled]="editingBlocked()">
-                  <option value="LOW">Baja</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">Alta</option>
-                  <option value="URGENT">Urgente</option>
-                </select>
-                <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.requiresSignature || false" (ngModelChange)="updateTaskNodeConfig({ requiresSignature: $event })" [disabled]="editingBlocked()" /> Solicitar firma touch al cliente</label>
-                <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.allowsDocuments || false" (ngModelChange)="updateTaskNodeConfig({ allowsDocuments: $event })" [disabled]="editingBlocked()" /> Permite adjuntar documentos</label>
-                <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.visibleToClient || false" (ngModelChange)="updateTaskNodeConfig({ visibleToClient: $event })" [disabled]="editingBlocked()" /> Mostrar avance/hito al cliente</label>
-                <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.notifyClient || false" (ngModelChange)="updateTaskNodeConfig({ notifyClient: $event })" [disabled]="editingBlocked()" /> Notificar al cliente cuando cambie el estado</label>
-              </ng-template>
-            </aside>
-          </section>
-
-          <aside class="config-panel" *ngIf="selectedNode() as node">
-            <div class="config-header">
-              <div>
-                <h2>{{ configTitle(node.type) }}</h2>
-                  <p>Doble click sobre un componente para editar sus reglas.</p>
-              </div>
-              <button class="config-close" (click)="closeNodeConfig()">×</button>
-            </div>
-
-            <label>Nombre</label>
-            <input class="config-input" [ngModel]="node.label" (ngModelChange)="updateSelectedNode({ label: $event })" />
-
-            <label>Descripción</label>
-            <textarea class="config-input" rows="3" [ngModel]="node.config?.description || ''" (ngModelChange)="updateNodeConfig({ description: $event })"></textarea>
-
-            <ng-container [ngSwitch]="node.type">
-              <ng-container *ngSwitchCase="'START'">
-                <label>Política asociada</label>
-                <input class="config-input" [value]="policyForm.value.name" disabled />
-                <label>Mensaje inicial</label>
-                <textarea class="config-input" rows="2" [ngModel]="node.config?.initialMessage || ''" (ngModelChange)="updateNodeConfig({ initialMessage: $event })"></textarea>
-                <label>Estado inicial del trámite</label>
-                <input class="config-input" placeholder="Ej: RECIBIDO" [ngModel]="node.config?.initialStatus || 'RECIBIDO'" (ngModelChange)="updateNodeConfig({ initialStatus: $event })" />
-                <label>Condición de inicio</label>
-                <input class="config-input" [ngModel]="node.config?.startCondition || 'Trámite creado por funcionario'" (ngModelChange)="updateNodeConfig({ startCondition: $event })" />
-              </ng-container>
-
-              <ng-container *ngSwitchCase="'TASK'">
-                <label>Departamento responsable</label>
-                <input class="config-input" [value]="departmentName(node.departmentId)" disabled />
-                <label>Tipo de tarea</label>
-                <select class="config-input" [ngModel]="node.config?.taskType || 'NORMAL'" (ngModelChange)="updateNodeConfig({ taskType: $event })">
-                  <option value="NORMAL">Normal</option>
-                  <option value="PARALLEL">Paralela</option>
-                </select>
-                <label class="config-check"><input type="checkbox" [ngModel]="node.config?.requiresSignature || false" (ngModelChange)="updateNodeConfig({ requiresSignature: $event })" /> Requiere firma</label>
-                <label>Tiempo estimado</label>
-                <input class="config-input" placeholder="Ej: 48 horas" [ngModel]="node.config?.estimatedTime || ''" (ngModelChange)="updateNodeConfig({ estimatedTime: $event })" />
-                <label>Formulario dinámico simple</label>
-                <textarea class="config-input" rows="3" placeholder="Ej: nombre_cliente, cedula, monto" [ngModel]="node.config?.dynamicForm || ''" (ngModelChange)="updateNodeConfig({ dynamicForm: $event })"></textarea>
-                <label>Campos requeridos</label>
-                <textarea class="config-input" rows="2" placeholder="Ej: cedula, firma, documento_identidad" [ngModel]="node.config?.requiredFields || ''" (ngModelChange)="updateNodeConfig({ requiredFields: $event })"></textarea>
-              </ng-container>
-
-              <ng-container *ngSwitchCase="'GATEWAY'">
-                <label>Dato evaluado</label>
-                <input class="config-input" placeholder="Ej: aprobado_legal" [ngModel]="node.config?.evaluatedField || ''" (ngModelChange)="updateNodeConfig({ evaluatedField: $event })" />
-                <label>Tipo de condición</label>
-                <select class="config-input" [ngModel]="node.config?.conditionType || 'BOOLEAN'" (ngModelChange)="updateNodeConfig({ conditionType: $event })">
-                  <option value="BOOLEAN">Booleano</option>
-                  <option value="SELECTION">Selección</option>
-                  <option value="NUMBER">Número</option>
-                </select>
-                <label>Condición</label>
-                <input class="config-input" placeholder="Ej: monto > 10000" [ngModel]="node.config?.condition || ''" (ngModelChange)="updateNodeConfig({ condition: $event })" />
-                <label>Ramas de salida</label>
-                <textarea class="config-input" rows="4" placeholder="Sí → Revisión administrativa\nNo → Fin rechazado" [ngModel]="node.config?.branches || ''" (ngModelChange)="updateNodeConfig({ branches: $event })"></textarea>
-                <label>Camino por defecto</label>
-                <input class="config-input" placeholder="Ej: Revisión manual" [ngModel]="node.config?.defaultBranch || ''" (ngModelChange)="updateNodeConfig({ defaultBranch: $event })" />
-              </ng-container>
-
-              <ng-container *ngSwitchCase="'PARALLEL'">
-                <label>Ramas simultáneas</label>
-                <textarea class="config-input" rows="4" placeholder="Legal\nFinanciero" [ngModel]="node.config?.parallelBranches || ''" (ngModelChange)="updateNodeConfig({ parallelBranches: $event })"></textarea>
-                <label>Modo de ejecución</label>
-                <input class="config-input" [ngModel]="node.config?.executionMode || 'ALL'" (ngModelChange)="updateNodeConfig({ executionMode: 'ALL' })" disabled />
-              </ng-container>
-
-              <ng-container *ngSwitchCase="'JOIN'">
-                <label>Regla para continuar</label>
-                <input class="config-input" [ngModel]="node.config?.joinRule || 'Todas las tareas paralelas requeridas completadas'" (ngModelChange)="updateNodeConfig({ joinRule: $event })" />
-              </ng-container>
-
-              <ng-container *ngSwitchCase="'END'">
-                <label>Estado final del trámite</label>
-                <select class="config-input" [ngModel]="node.config?.finalStatus || 'COMPLETED'" (ngModelChange)="updateNodeConfig({ finalStatus: $event })">
-                  <option value="COMPLETED">Completado</option>
-                  <option value="REJECTED">Rechazado</option>
-                  <option value="CANCELLED">Cancelado</option>
-                </select>
-                <label>Mensaje visible para el cliente</label>
-                <textarea class="config-input" rows="3" [ngModel]="node.config?.customerMessage || ''" (ngModelChange)="updateNodeConfig({ customerMessage: $event })"></textarea>
-                <label class="config-check"><input type="checkbox" [ngModel]="node.config?.generatesClientNotification || false" (ngModelChange)="updateNodeConfig({ generatesClientNotification: $event })" /> Generar notificación</label>
-                <label class="config-check"><input type="checkbox" [ngModel]="node.config?.requiresFinalDocument || false" (ngModelChange)="updateNodeConfig({ requiresFinalDocument: $event })" /> Requiere documento final</label>
-              </ng-container>
-            </ng-container>
-          </aside>
-
-          <aside class="config-panel version-panel" *ngIf="versionPanelOpen()">
-            <div class="config-header">
-              <div>
-                <h2>Control de versiones</h2>
-              <p>Separá autosave, historial de cambios, versiones internas del diseño y publicación.</p>
-              </div>
-              <button class="config-close" (click)="toggleVersionPanel()">×</button>
-            </div>
-
-            <div class="panel-section version-create" *ngIf="!isReadOnly()">
-              <h3>Crear versión interna del diseño</h3>
-              <input class="config-input" [(ngModel)]="newVersionName" placeholder="Nombre interno: revisión legal agregada" [readOnly]="publishedLocked()" />
-              <textarea class="config-input" rows="3" [(ngModel)]="newVersionSummary" placeholder="Resumen del hito o cambio importante" [readOnly]="publishedLocked()"></textarea>
-              <button class="restore-button" [disabled]="publishedLocked()" (click)="createNamedVersion()">Guardar versión</button>
-            </div>
-
-            <div class="panel-section" *ngIf="latestAutosave() as autosave">
-              <h3>Último autosave</h3>
-              <p class="panel-help">{{ formatBoliviaDate(autosave.savedAt) }} · sesión {{ autosave.sessionId }}</p>
-              <button class="restore-button" *ngIf="canRecoverAutosave() && !isReadOnly()" (click)="restoreAutosaveDraft()">Recuperar autosave</button>
-            </div>
-
-            <div class="version-item" *ngFor="let version of typedPolicyVersions()">
-              <div>
-                <strong>v{{ version.version || policyForm.value.version || '1.0.0' }} · {{ version.name || ('Versión interna ' + version.versionNumber) }}</strong>
-                <p>{{ formatBoliviaDate(version.createdAt) }} · {{ version.createdBy || 'sistema' }}</p>
-                <p>{{ version.changelogSummary || 'Sin resumen' }}</p>
-                <p *ngIf="version.published">Publicada {{ formatBoliviaDate(version.publishedAt) }}</p>
-              </div>
-              <div class="version-actions">
-                <button class="restore-button" *ngIf="!isReadOnly()" (click)="restoreVersion(version.id)">Restaurar</button>
-                <button class="restore-button" *ngIf="!version.published && !isReadOnly()" (click)="publishVersion(version.id)">Publicar</button>
-                <button class="restore-button" *ngIf="!isReadOnly()" (click)="cloneVersion(version.id)">Clonar</button>
-                <button class="restore-button" (click)="compareWithCurrent(version)">Comparar</button>
-                <button class="restore-button" *ngIf="!version.published && !isReadOnly()" (click)="deleteVersion(version.id)">Eliminar</button>
-              </div>
-            </div>
-
-            <p class="panel-help" *ngIf="typedPolicyVersions().length === 0">Todavía no hay versiones registradas.</p>
-            <p class="panel-help" *ngIf="versionComparison()">{{ versionComparison() }}</p>
-
-            <div class="panel-section">
-              <h3>Historial de cambios</h3>
-              <div class="version-item" *ngFor="let change of pagedChangeLogs()">
-                <div>
-                  <strong>{{ change.actionType }}</strong>
-                  <p>{{ change.username }} · {{ formatBoliviaDate(change.createdAt) }}</p>
-                  <p>{{ change.targetType }}<span *ngIf="change.targetId"> · {{ change.targetId }}</span></p>
-                </div>
-              </div>
-              <p class="panel-help" *ngIf="changeLogs().length === 0">Todavía no hay eventos de auditoría.</p>
-              <div class="version-actions history-nav" *ngIf="changeLogs().length > 5">
-                <button class="restore-button" [disabled]="changeLogPage() === 0" (click)="prevChangeLogPage()">Anterior</button>
-                <button class="restore-button" [disabled]="(changeLogPage() + 1) * 5 >= changeLogs().length" (click)="nextChangeLogPage()">Siguiente</button>
-              </div>
-            </div>
-          </aside>
-
-          <aside class="config-panel invite-panel" *ngIf="invitePanelOpen()">
-            <div class="config-header">
-              <div>
-                <h2>Invitar editores</h2>
-                <p>Solo administradores y diseñadores activos pueden editar este borrador invitado.</p>
-              </div>
-              <button class="config-close" (click)="toggleInvitePanel()">×</button>
-            </div>
-
-            <div class="invite-item" *ngFor="let candidate of eligibleEditors()">
-              <label class="invite-checkbox">
-                <input
-                  type="checkbox"
-                  [checked]="isInvited(candidate.username)"
-                  (change)="toggleEditor(candidate.username, $any($event.target).checked)"
-                />
-                <span>
-                  <strong>{{ candidate.username }}</strong>
-                  <small>{{ candidate.role }}</small>
-                </span>
-              </label>
-            </div>
-
-            <p class="panel-help" *ngIf="eligibleEditors().length === 0">No hay usuarios elegibles para invitar.</p>
-          </aside>
-
-          <aside class="config-panel ai-panel" *ngIf="aiPanelOpen()">
-            <div class="config-header">
-              <div>
-                <h2>Asistente IA de pizarra</h2>
-                <p>Pedile que revise, mejore o proponga cambios sobre el flujo actual. Si la pizarra está vacía, también puede armar un borrador.</p>
-              </div>
-              <button class="config-close" (click)="toggleAiPanel()">×</button>
-            </div>
-
-            <div class="ai-chat">
-              <div class="ai-empty" *ngIf="aiMessages().length === 0">
-                Contame qué querés mejorar: decisiones, formularios, cuellos de botella o un borrador de flujo.
-              </div>
-              <div class="ai-message" *ngFor="let message of aiMessages()" [class.user]="message.role === 'user'" [class.assistant]="message.role === 'assistant'">
-                <strong>{{ message.role === 'user' ? 'Vos' : 'IA' }}</strong>
-                <p>{{ message.content }}</p>
-                <ul *ngIf="message.recommendations?.length">
-                  <li *ngFor="let item of message.recommendations">{{ item }}</li>
-                </ul>
-              </div>
-              <div class="ai-message assistant" *ngIf="aiLoading()">
-                <strong>IA</strong>
-                <p>Analizando diseño...</p>
-              </div>
-            </div>
-
-            <div class="ai-composer-shell">
-              <div class="ai-suggestion-card" *ngIf="aiSuggestedRules()">
-                <div>
-                  <strong>Propuesta lista</strong>
-                  <span>Aplicala sobre la pizarra y luego corré Simular.</span>
-                </div>
-                <button class="ai-apply-inline" type="button" [disabled]="editingBlocked()" (click)="applyAiSuggestedDiagram()">Aplicar</button>
-              </div>
-
-              <div class="ai-composer" [class.listening]="voiceListening()">
-                <textarea rows="1" [(ngModel)]="aiPrompt" placeholder="Pedile cambios al flujo, validaciones o mejoras..."></textarea>
-                <div class="ai-composer-actions">
-                  <button class="composer-icon" type="button" [disabled]="aiLoading()" (click)="toggleVoicePrompt()" [title]="voiceListening() ? 'Detener voz' : 'Dictar por voz'">{{ voiceListening() ? '■' : '🎙' }}</button>
-                  <button class="composer-send" type="button" [disabled]="aiLoading() || !aiPrompt.trim()" (click)="askAiAssistant()">↑</button>
-                </div>
-              </div>
-              <p class="ai-listening-hint" *ngIf="voiceListening()">Escuchando. Se envía al detectar silencio.</p>
-            </div>
-          </aside>
-        </main>
-      </div>
-
-      <section class="simulation-modal-backdrop" *ngIf="simulationOpen()">
-        <div class="simulation-modal">
-          <div class="simulation-header">
-            <div>
-              <h2>Simulación predictiva del diseño</h2>
-              <p>Analiza todos los nodos y conectores sin ejecutar el flujo recursivamente. Esto evita cuelgues y detecta vacíos antes de publicar.</p>
-            </div>
-            <button class="config-close" type="button" (click)="closeSimulationModal()">×</button>
-          </div>
-
-          <div class="simulation-progress">
-            <div class="progress-track"><div class="progress-bar" [style.width.%]="simulationProgress()"></div></div>
-            <strong>{{ simulationProgress() }}%</strong>
-          </div>
-
-          <div class="simulation-summary" *ngIf="simulationReport() as report">
-            <span [class]="'simulation-status ' + report.status">{{ simulationStatusLabel(report.status) }}</span>
-            <span *ngIf="report.durationMs !== undefined">Duración: {{ report.durationMs }} ms</span>
-            <span>Rutas/conectores analizados: {{ report.checkedPaths }}</span>
-            <span>Cuellos de botella: {{ report.bottlenecks.length }}</span>
-          </div>
-
-          <div class="simulation-checklist">
-            <article class="simulation-check" *ngFor="let check of simulationChecks()" [class.ok]="check.status === 'ok'" [class.warning]="check.status === 'warning'" [class.error]="check.status === 'error'" [class.running]="check.status === 'running'">
-              <strong>{{ checkIcon(check.status) }} {{ check.label }}</strong>
-              <p>{{ check.detail }}</p>
-            </article>
-          </div>
-
-          <div class="simulation-findings" *ngIf="simulationReport() as report">
-            <p *ngIf="report.errors.length"><strong>Errores:</strong> {{ report.errors.join(' · ') }}</p>
-            <p *ngIf="report.warnings.length"><strong>Advertencias:</strong> {{ report.warnings.join(' · ') }}</p>
-            <p *ngIf="report.bottlenecks.length"><strong>Posibles cuellos de botella:</strong> {{ report.bottlenecks.join(' · ') }}</p>
-          </div>
-        </div>
-      </section>
-    </div>
-  `,
-  styles: [`
-    .board-layout { display: flex; flex-direction: column; height: calc(100vh - 64px); margin: calc(var(--spacing-xl) * -1); background: var(--color-bg-board); }
-    .board-header { min-height: 78px; padding: 10px 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #fff; border-bottom: 1px solid rgba(203, 213, 225, .75); box-shadow: 0 1px 0 rgba(15,23,42,.02); }
-    .header-left { display: flex; align-items: center; gap: 14px; min-width: 330px; }
-    .btn-icon { width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(203, 213, 225, .85); border-radius: 8px; background: #fff; cursor: pointer; }
-    .policy-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .title-input { width: min(360px, 32vw); border: 0; outline: 0; font-size: 18px; font-weight: 800; color: var(--color-text-main); background: transparent; }
-    .policy-state-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 3px; color: var(--color-text-muted); font-size: 12px; }
-    .status-pill, .state-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(203,213,225,.85); background: #f8fafc; color: var(--color-text-main); font-size: 11px; font-weight: 800; white-space: nowrap; }
-    .status-pill.locked { border-color: rgba(22,163,74,.28); background: #f0fdf4; color: #15803d; }
-    .status-pill.readonly { border-color: rgba(100,116,139,.28); background: #f8fafc; color: #475569; }
-    .state-chip { min-height: 20px; color: var(--color-primary-hover); background: var(--color-primary-soft); border-color: rgba(37,99,235,.22); }
-    .state-chip.warning { color: #b45309; background: #fffbeb; border-color: rgba(245,158,11,.35); }
-    .header-command-bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-    .command-group { min-height: 52px; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid rgba(226,232,240,.9); border-radius: 14px; background: rgba(248,250,252,.78); }
-    .command-label { padding: 0 4px; color: var(--color-text-muted); font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
-    .state-banner { margin: 6px 0 0; font-size: 12px; font-weight: 700; color: var(--color-primary-hover); }
-    .state-banner.warning { color: var(--color-warning); }
-    .state-banner.info { color: var(--color-text-muted); }
-    .status-select, .btn-primary { border-radius: 8px; font-family: inherit; }
-    .status-select { height: 34px; padding: 0 10px; border: 1px solid rgba(203, 213, 225, .85); background: #fff; font-weight: 700; color: var(--color-text-main); }
-    .btn-primary { padding: 9px 16px; border: 0; background: var(--color-primary); color: #fff; font-weight: 700; cursor: pointer; }
-    .command-button { height: 34px; padding: 0 11px; border: 1px solid rgba(203,213,225,.88); border-radius: 10px; background: #fff; cursor: pointer; font-size: 12px; font-weight: 800; color: var(--color-text-main); white-space: nowrap; }
-    .command-button:hover { border-color: rgba(37,99,235,.38); background: var(--color-primary-soft); color: var(--color-primary-hover); }
-    .command-button.emphasized { border-color: rgba(37,99,235,.35); color: var(--color-primary-hover); background: #eff6ff; }
-    .command-button.ai-command { border-color: rgba(124,58,237,.25); background: #f5f3ff; color: #6d28d9; }
-    .save-command { min-height: 46px; border-radius: 14px; box-shadow: 0 10px 22px rgba(37,99,235,.18); }
-    .btn-primary:disabled { background: var(--color-disabled); cursor: not-allowed; }
-    .board-workbench { flex: 1; display: flex; min-height: 0; }
-    .tool-panel { width: 212px; padding: 10px; background: #fff; border-right: 1px solid rgba(203, 213, 225, .75); display: flex; flex-direction: column; gap: 8px; overflow-y: auto; overflow-x: hidden; }
-    .panel-section { padding: 9px; border: 1px solid rgba(203, 213, 225, .72); border-radius: 12px; background: rgba(248, 250, 252, .72); }
-    .compact-section { gap: 8px; display: flex; flex-direction: column; }
-    .section-inline-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .panel-mini-help { color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
-    .collapse-toggle { border: 0; background: transparent; color: var(--color-primary-hover); font-size: 11px; font-weight: 700; cursor: pointer; padding: 0; }
-    .panel-section h3, .panel-section label { display: block; margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-main); }
-    .tool-button, .department-chip { width: 100%; margin-top: 8px; padding: 10px; display: flex; align-items: center; gap: 10px; border: 1px solid rgba(203, 213, 225, .9); border-radius: 10px; background: #fff; cursor: pointer; font-weight: 600; color: var(--color-text-main); }
-    .tool-button:hover, .tool-button.active, .department-chip:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
-    .department-chip { align-items: flex-start; flex-direction: column; gap: 2px; text-align: left; }
-    .department-chip small { color: var(--color-text-muted); font-weight: 500; }
-    .lane-select, .description-input { width: 100%; border: 1px solid rgba(203, 213, 225, .9); border-radius: 8px; padding: 10px; font-family: inherit; outline: none; }
-    .description-input { resize: vertical; font-size: 13px; }
-    .panel-help { margin: 8px 0 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.4; }
-    .component-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-    .tool-tile { min-height: 56px; padding: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px solid rgba(203, 213, 225, .9); border-radius: 10px; background: #fff; cursor: pointer; color: var(--color-text-main); font-size: 10px; font-weight: 700; }
-    .tool-tile:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
-    .tool-tile ng-icon { font-size: 16px; }
-    .quick-actions-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-    .compact-action { min-height: 36px; padding: 7px 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid rgba(203,213,225,.9); border-radius: 10px; background: #fff; cursor: pointer; font-size: 11px; font-weight: 700; color: var(--color-text-main); }
-    .compact-action.active, .compact-action:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
-    .compact-action.danger:hover { border-color: rgba(239,68,68,.45); background: #FEF2F2; color: var(--color-error); }
-    .compact-action:disabled, .tool-tile:disabled, .compact-chip:disabled { opacity: .45; cursor: not-allowed; }
-    .department-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow: auto; padding-right: 2px; }
-    .compact-chip { width: auto; margin-top: 0; min-height: 34px; padding: 8px 10px; flex: 1 1 100%; align-items: center; justify-content: center; text-align: center; }
-    .compact-description { min-height: 76px; }
-    .description-section { margin-top: auto; }
-    .board-surface { position: relative; flex: 1; display: flex; flex-direction: column; min-width: 0; }
-    .board-topbar { height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 18px; border-bottom: 1px solid rgba(203, 213, 225, .65); background: rgba(255,255,255,.72); }
-    .surface-label { font-weight: 700; color: var(--color-text-main); }
-    .surface-hint { font-size: 12px; color: var(--color-text-muted); }
-    .validation-message { color: var(--color-error); font-size: 12px; font-weight: 700; }
-    .zoom-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-    .zoom-controls button { border: 1px solid rgba(203,213,225,.85); border-radius: 8px; background: #fff; padding: 5px 9px; cursor: pointer; font-weight: 700; }
-    .zoom-controls span { min-width: 48px; text-align: center; font-size: 12px; font-weight: 700; color: var(--color-text-main); }
-    .lanes-canvas { position: relative; flex: 1; min-height: 0; overflow: auto; background-image: radial-gradient(circle, rgba(148, 163, 184, .35) 1px, transparent 1px); background-size: 24px 24px; cursor: default; }
-    .lanes-canvas.panning { cursor: grabbing; }
-    .board-content { position: relative; width: 3000px; height: 2000px; transform-origin: 0 0; }
-    .lane { position: absolute; left: 0; right: 0; height: 140px; border-bottom: 1px solid rgba(203, 213, 225, .8); background: rgba(255,255,255,.38); }
-    .lane.drag-target { box-shadow: inset 0 0 0 3px rgba(37,99,235,.45), 0 0 24px rgba(37,99,235,.22); }
-    .lane-title { position: absolute; left: 0; top: 0; width: 180px; height: 100%; padding: 18px; border-right: 1px solid rgba(203, 213, 225, .8); background: rgba(248,250,252,.92); font-weight: 800; color: var(--color-text-main); display: flex; justify-content: space-between; gap: 8px; z-index: 4; }
-    .lane-remove { width: 24px; height: 24px; border: 1px solid rgba(239,68,68,.35); border-radius: 999px; background: #fff; color: var(--color-error); cursor: pointer; position: relative; z-index: 5; }
-    .lane-description { position: absolute; left: 18px; top: 42px; width: 150px; font-size: 11px; color: #64748b; line-height: 1.3; }
-    .lane-resize { position: absolute; left: 180px; right: 0; bottom: -4px; height: 10px; border: 0; background: linear-gradient(to bottom, transparent 40%, rgba(148,163,184,.28) 40%, rgba(148,163,184,.28) 60%, transparent 60%); cursor: ns-resize; z-index: 4; }
-    .lane-resize:hover { background: linear-gradient(to bottom, transparent 35%, rgba(37,99,235,.45) 35%, rgba(37,99,235,.45) 65%, transparent 65%); }
-    .connector-layer { position: absolute; inset: 0; width: 3000px; height: 2000px; z-index: 2; }
-    .connector-path { fill: none; stroke: #2563eb; stroke-width: 2.5; marker-end: url(#arrow); pointer-events: none; }
-    .connector-path.removable { pointer-events: stroke; cursor: pointer; }
-    .connector-layer marker path { fill: #2563eb; }
-    .board-node { position: absolute; z-index: 3; width: 154px; min-height: 74px; padding: 10px; border: 2px solid rgba(37, 99, 235, .55); border-radius: 14px; background: #fff; box-shadow: 0 10px 22px rgba(15, 23, 42, .08); cursor: grab; user-select: none; }
-    .board-node.selected { box-shadow: 0 0 0 4px var(--color-primary-soft), 0 10px 22px rgba(15, 23, 42, .08); }
-    .node-start { border-color: rgba(34,197,94,.7); border-radius: 999px; }
-    .node-gateway { border-color: rgba(245,158,11,.8); transform: rotate(0deg); }
-    .node-parallel { border-color: rgba(124,58,237,.8); }
-    .node-join { border-color: rgba(14,165,233,.8); }
-    .node-end { border-color: rgba(239,68,68,.75); border-radius: 999px; }
-    .node-type { font-size: 10px; font-weight: 800; letter-spacing: .08em; color: var(--color-text-muted); }
-    .node-label { width: 100%; margin-top: 8px; border: 0; outline: 0; text-align: center; font-weight: 700; color: var(--color-text-main); background: transparent; }
-    .node-meta { margin-top: 6px; font-size: 10px; color: #16a34a; font-weight: 800; text-align: center; }
-    .node-remove { position: absolute; top: -9px; right: -9px; width: 24px; height: 24px; border: 1px solid rgba(239,68,68,.75); border-radius: 999px; background: #fff; color: var(--color-error); cursor: pointer; }
-    .empty-board { position: absolute; inset: 44px 44px auto 220px; min-height: 260px; border: 1px dashed rgba(37,99,235,.35); border-radius: 18px; background: rgba(219,234,254,.22); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--color-text-muted); }
-    .empty-board ng-icon { font-size: 42px; color: var(--color-primary); }
-    .empty-board h2 { margin: 14px 0 6px; color: var(--color-text-main); }
-    .empty-board p { max-width: 420px; margin: 0; line-height: 1.45; }
-    .config-panel { position: absolute; top: 44px; right: 0; bottom: 0; z-index: 6; width: 360px; padding: 18px; overflow-y: auto; background: #fff; border-left: 1px solid rgba(203,213,225,.8); box-shadow: -14px 0 30px rgba(15,23,42,.08); }
-    .config-header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
-    .config-header h2 { margin: 0; font-size: 18px; }
-    .config-header p { margin: 4px 0 0; color: var(--color-text-muted); font-size: 12px; }
-    .config-close { width: 30px; height: 30px; border: 1px solid rgba(203,213,225,.85); border-radius: 999px; background: #fff; cursor: pointer; color: var(--color-error); }
-    .config-panel label { display: block; margin: 12px 0 6px; font-size: 12px; font-weight: 800; color: var(--color-text-main); text-transform: uppercase; letter-spacing: .04em; }
-    .config-input { width: 100%; padding: 9px 10px; border: 1px solid rgba(203,213,225,.9); border-radius: 8px; font-family: inherit; font-size: 13px; outline: none; }
-    .config-input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-soft); }
-    .config-check { display: flex !important; align-items: center; gap: 8px; text-transform: none !important; letter-spacing: 0 !important; }
-    .version-panel { right: 0; }
-    .version-item { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(203,213,225,.7); }
-    .version-item p { margin: 4px 0 0; color: var(--color-text-muted); font-size: 12px; }
-    .restore-button { align-self: center; border: 1px solid rgba(37,99,235,.35); border-radius: 8px; background: var(--color-primary-soft); color: var(--color-primary-hover); cursor: pointer; padding: 7px 10px; font-weight: 700; }
-    .version-actions { display: flex; flex-direction: column; gap: 8px; }
-    .history-nav { margin-top: 12px; flex-direction: row; }
-    .version-create { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-    .task-form-editor { position: absolute; inset: 44px 0 0 0; z-index: 8; display: grid; grid-template-columns: 230px minmax(420px, 1fr) 340px; background: #f8fafc; }
-    .form-palette, .form-config { padding: 16px; overflow-y: auto; background: #fff; border-right: 1px solid rgba(203,213,225,.8); }
-    .form-config { border-right: 0; border-left: 1px solid rgba(203,213,225,.8); }
-    .form-canvas { min-width: 0; overflow-y: auto; padding: 18px 24px; }
-    .form-editor-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
-    .form-editor-header.compact { display: block; }
-    .form-editor-header h2, .form-editor-header h3 { margin: 0; color: var(--color-text-main); }
-    .form-editor-header p { margin: 4px 0 0; font-size: 12px; color: var(--color-text-muted); line-height: 1.35; }
-    .form-editor-actions { display: flex; gap: 8px; align-items: center; }
-    .form-field-tool { width: 100%; margin-top: 8px; padding: 10px; border: 1px solid rgba(203,213,225,.9); border-radius: 10px; background: #fff; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 2px; }
-    .form-field-tool strong { color: var(--color-text-main); font-size: 13px; }
-    .form-field-tool small { color: var(--color-text-muted); font-size: 11px; }
-    .form-paper { max-width: 820px; margin: 0 auto; padding: 24px; border: 1px solid rgba(203,213,225,.85); border-radius: 18px; background: #fff; box-shadow: 0 12px 28px rgba(15,23,42,.08); }
-    .form-title-input { margin-bottom: 16px; font-size: 18px; font-weight: 800; }
-    .empty-form { padding: 30px; border: 1px dashed rgba(148,163,184,.8); border-radius: 14px; color: var(--color-text-muted); text-align: center; }
-    .form-field-card { display: flex; justify-content: space-between; gap: 12px; padding: 14px; margin-top: 10px; border: 1px solid rgba(203,213,225,.8); border-radius: 12px; cursor: pointer; background: #fff; }
-    .form-field-card.selected { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-soft); }
-    .form-field-card p { margin: 4px 0 0; color: var(--color-text-muted); font-size: 12px; }
-    .field-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-    .field-card-actions button { border: 1px solid rgba(203,213,225,.85); border-radius: 8px; background: #fff; cursor: pointer; padding: 5px 7px; font-weight: 700; }
-    .invite-panel { right: 0; }
-    .invite-item { padding: 10px 0; border-bottom: 1px solid rgba(203,213,225,.7); }
-    .invite-checkbox { display: flex !important; align-items: center; gap: 12px; text-transform: none !important; letter-spacing: 0 !important; margin: 0 !important; cursor: pointer; }
-    .invite-checkbox span { display: flex; flex-direction: column; gap: 2px; }
-    .invite-checkbox small { color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
-    .ai-panel { width: 440px; display: flex; flex-direction: column; padding: 16px; overflow: hidden; }
-    .ai-panel .config-header { flex: 0 0 auto; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid rgba(226,232,240,.9); }
-    .ai-chat { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding: 4px 4px 12px; }
-    .ai-empty { padding: 14px; border: 1px dashed rgba(148,163,184,.8); border-radius: 12px; color: var(--color-text-muted); background: #f8fafc; font-size: 13px; line-height: 1.4; }
-    .ai-message { padding: 12px; border: 1px solid rgba(203,213,225,.85); border-radius: 14px; background: #f8fafc; }
-    .ai-message.user { margin-left: 34px; background: #eff6ff; border-color: rgba(37,99,235,.25); }
-    .ai-message.assistant { margin-right: 34px; background: #fff; }
-    .ai-message strong { display: block; margin-bottom: 5px; color: var(--color-text-main); font-size: 12px; }
-    .ai-message p { margin: 0; color: var(--color-text-main); line-height: 1.45; white-space: pre-wrap; }
-    .ai-message ul { margin: 8px 0 0; padding-left: 18px; color: var(--color-text-main); }
-    .ai-actions { display: flex; gap: 8px; margin: 10px 0 14px; }
-    .ai-response { padding: 12px; margin-top: 10px; border: 1px solid rgba(203,213,225,.85); border-radius: 12px; background: #f8fafc; }
-    .ai-response p { margin: 6px 0 0; color: var(--color-text-main); line-height: 1.45; }
-    .ai-response ul { margin: 8px 0 0; padding-left: 18px; color: var(--color-text-main); }
-    .ai-composer-shell { flex: 0 0 auto; padding-top: 10px; border-top: 1px solid rgba(226,232,240,.9); background: #fff; }
-    .ai-suggestion-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; padding: 10px 10px 10px 12px; border: 1px solid rgba(37,99,235,.28); border-radius: 14px; background: #eff6ff; }
-    .ai-suggestion-card div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-    .ai-suggestion-card strong { color: var(--color-primary-hover); font-size: 12px; }
-    .ai-suggestion-card span { color: var(--color-text-muted); font-size: 11px; line-height: 1.25; }
-    .ai-apply-inline { height: 32px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--color-primary); color: #fff; cursor: pointer; font-size: 12px; font-weight: 800; white-space: nowrap; }
-    .ai-apply-inline:disabled { opacity: .5; cursor: not-allowed; }
-    .ai-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; padding: 9px; border: 1px solid rgba(203,213,225,.92); border-radius: 18px; background: #f8fafc; box-shadow: inset 0 1px 0 rgba(255,255,255,.75); }
-    .ai-composer:focus-within { border-color: rgba(37,99,235,.45); box-shadow: 0 0 0 3px var(--color-primary-soft); }
-    .ai-composer.listening { border-color: rgba(124,58,237,.45); background: #faf5ff; }
-    .ai-composer textarea { min-height: 24px; max-height: 120px; resize: none; overflow-y: auto; border: 0; outline: 0; background: transparent; color: var(--color-text-main); font-family: inherit; font-size: 13px; line-height: 1.45; padding: 4px 2px; }
-    .ai-composer textarea::placeholder { color: #94a3b8; }
-    .ai-composer-actions { display: flex; align-items: center; gap: 6px; }
-    .composer-icon, .composer-send { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; cursor: pointer; font-weight: 900; }
-    .composer-icon { border: 1px solid rgba(203,213,225,.9); background: #fff; color: var(--color-text-main); }
-    .composer-send { border: 0; background: var(--color-text-main); color: #fff; font-size: 18px; line-height: 1; }
-    .composer-send:disabled, .composer-icon:disabled { opacity: .42; cursor: not-allowed; }
-    .ai-listening-hint { margin: 6px 2px 0; color: #6d28d9; font-size: 11px; font-weight: 700; }
-    .simulation-modal-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(15,23,42,.48); padding: 24px; }
-    .simulation-modal { width: min(920px, 100%); max-height: 88vh; overflow-y: auto; background: #fff; border-radius: 18px; box-shadow: 0 24px 70px rgba(15,23,42,.28); padding: 20px; }
-    .simulation-header { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-    .simulation-header h2 { margin: 0; color: var(--color-text-main); }
-    .simulation-header p, .simulation-check p, .simulation-findings p { margin: 5px 0 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.4; }
-    .simulation-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-    .progress-track { flex: 1; height: 10px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
-    .progress-bar { height: 100%; background: var(--color-primary); transition: width .18s ease; }
-    .simulation-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-    .simulation-summary span { padding: 6px 10px; border-radius: 999px; background: #f8fafc; border: 1px solid rgba(203,213,225,.85); font-size: 12px; font-weight: 700; }
-    .simulation-status.ok { color: #15803d; background: #dcfce7 !important; }
-    .simulation-status.warning { color: #b45309; background: #fef3c7 !important; }
-    .simulation-status.error { color: #b91c1c; background: #fee2e2 !important; }
-    .simulation-checklist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .simulation-check { padding: 12px; border: 1px solid rgba(203,213,225,.85); border-radius: 12px; background: #fff; }
-    .simulation-check.ok { border-color: rgba(34,197,94,.35); background: #f0fdf4; }
-    .simulation-check.warning { border-color: rgba(245,158,11,.4); background: #fffbeb; }
-    .simulation-check.error { border-color: rgba(239,68,68,.4); background: #fef2f2; }
-    .simulation-check.running { border-color: rgba(37,99,235,.4); background: #eff6ff; }
-    .simulation-findings { margin-top: 14px; padding: 12px; border-radius: 12px; background: #f8fafc; border: 1px solid rgba(203,213,225,.85); }
-  `]
+  templateUrl: './policy-form.component.html',
 })
 export class PolicyFormComponent implements OnInit, OnDestroy {
   readonly laneHeight = 140;
@@ -938,6 +50,22 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     { type: 'FILE', label: 'Archivo', help: 'Documentos adjuntos' },
     { type: 'RESULT', label: 'Resultado / Dictamen', help: 'Aprobado, Observado, Rechazado' },
     { type: 'SIGNATURE', label: 'Firma cliente', help: 'Solicitud puntual de firma touch en mobile' }
+  ];
+
+  readonly umlNodePalette: UmlNodePaletteItem[] = [
+    { type: 'START', title: 'Start', subtitle: 'Nodo inicial', shape: 'circle', marker: '●' },
+    { type: 'TASK', title: 'Task', subtitle: 'Actividad', shape: 'rounded-rect', marker: '▭' },
+    { type: 'GATEWAY', title: 'Decision', subtitle: 'Rama o unión', shape: 'diamond', marker: '◇' },
+    { type: 'PARALLEL', title: 'Fork', subtitle: 'Paralelo', shape: 'bar', marker: '│' },
+    { type: 'JOIN', title: 'Join', subtitle: 'Sincronización', shape: 'bar', marker: '│' },
+    { type: 'END', title: 'End', subtitle: 'Nodo final', shape: 'circle', marker: '◉' },
+    { type: 'NOTE', title: 'Note', subtitle: 'Nota', shape: 'note', marker: '⌝' },
+    { type: 'REGION', title: 'Interruptible region', subtitle: 'Región', shape: 'region', marker: '⬚' }
+  ];
+
+  readonly connectorVariants: ConnectorVariantItem[] = [
+    { type: 'CONTROL_FLOW', title: 'Control flow', previewClass: 'control' },
+    { type: 'OBJECT_FLOW', title: 'Object flow', previewClass: 'object' }
   ];
 
   private fb = inject(FormBuilder);
@@ -970,6 +98,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   nodes = signal<BoardNode[]>([]);
   connectors = signal<BoardConnector[]>([]);
   connectMode = signal(false);
+  selectedConnectorKind = signal<ConnectorKind>('CONTROL_FLOW');
   hoveredLaneId = signal<string | null>(null);
   connectorSourceId = signal<string | null>(null);
   selectedNode = signal<BoardNode | null>(null);
@@ -1018,6 +147,8 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   private draggedNodeType: BoardNodeType | null = null;
   private resizingLaneId: string | null = null;
   private laneResizeStart = { y: 0, height: this.laneHeight };
+  private resizingRegionId: string | null = null;
+  private regionResizeStart = { x: 0, y: 0, width: 260, height: 140 };
   private dragOffset = { x: 0, y: 0 };
   private panningCanvas: HTMLElement | null = null;
   private panStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
@@ -1066,6 +197,8 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     this.stopVoicePrompt(false);
     window.removeEventListener('pointermove', this.onLaneResizeMove);
     window.removeEventListener('pointerup', this.stopLaneResize);
+    window.removeEventListener('pointermove', this.onRegionResizeMove);
+    window.removeEventListener('pointerup', this.stopRegionResize);
   }
 
   addNode(type: BoardNodeType, departmentId?: string, x?: number, y?: number): void {
@@ -1281,6 +414,11 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     this.connectorSourceId.set(null);
   }
 
+  selectConnectorKind(kind: ConnectorKind): void {
+    if (this.editingBlocked()) return;
+    this.selectedConnectorKind.set(kind);
+  }
+
   handleNodeClick(node: BoardNode, event: Event): void {
     event.stopPropagation();
     if (this.suppressNextNodeClick) {
@@ -1297,7 +435,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     }
     if (sourceId === node.id) return;
 
-    const connector = { id: crypto.randomUUID(), sourceId, targetId: node.id };
+    const connector = { id: crypto.randomUUID(), sourceId, targetId: node.id, kind: this.selectedConnectorKind() };
     this.connectors.update(connectors => [...connectors, connector]);
     this.connectorSourceId.set(null);
     this.syncRules();
@@ -1475,6 +613,80 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     return this.taskFormFieldTypes.find(item => item.type === type)?.label || type;
   }
 
+  nodeVisual(type: BoardNodeType): UmlNodePaletteItem {
+    return this.umlNodePalette.find(item => item.type === type) || this.umlNodePalette[1];
+  }
+
+  nodeShape(type: BoardNodeType): string {
+    return this.nodeVisual(type).shape;
+  }
+
+  nodeWidth(node: BoardNode): number {
+    if (node.type === 'REGION' && node.config?.width) return node.config.width;
+    if (node.type === 'START' || node.type === 'END') return 54;
+    if (node.type === 'GATEWAY') return 78;
+    if (node.type === 'PARALLEL' || node.type === 'JOIN') return 18;
+    if (node.type === 'OBJECT') return 132;
+    if (node.type === 'NOTE') return 138;
+    if (node.type === 'REGION') return 260;
+    return 164;
+  }
+
+  nodeHeight(node: BoardNode): number {
+    if (node.type === 'REGION' && node.config?.height) return node.config.height;
+    if (node.type === 'START' || node.type === 'END') return 54;
+    if (node.type === 'GATEWAY') return 78;
+    if (node.type === 'PARALLEL' || node.type === 'JOIN') return 120;
+    if (node.type === 'OBJECT') return 48;
+    if (node.type === 'NOTE') return 110;
+    if (node.type === 'REGION') return 180;
+    return 74;
+  }
+
+  sendNodeToBack(nodeId: string, event: Event): void {
+    event.stopPropagation();
+    if (this.editingBlocked()) return;
+    this.nodes.update(nodes => nodes.map(n => n.id === nodeId ? { ...n, config: { ...(n.config || {}), zIndex: 1 } } : n));
+    this.syncRules();
+  }
+
+  usesExternalLabel(type: BoardNodeType): boolean {
+    return ['START', 'END', 'GATEWAY', 'PARALLEL', 'JOIN'].includes(type);
+  }
+
+  externalLabelClass(type: BoardNodeType): string {
+    if (type === 'PARALLEL' || type === 'JOIN') return 'side';
+    return 'below';
+  }
+
+  startRegionResize(node: BoardNode, event: PointerEvent): void {
+    if (this.editingBlocked() || node.type !== 'REGION') return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.resizingRegionId = node.id;
+    this.regionResizeStart = {
+      x: event.clientX,
+      y: event.clientY,
+      width: this.nodeWidth(node),
+      height: this.nodeHeight(node)
+    };
+    window.addEventListener('pointermove', this.onRegionResizeMove);
+    window.addEventListener('pointerup', this.stopRegionResize);
+  }
+
+  connectorKindLabel(kind: ConnectorKind): string {
+    return this.connectorVariants.find(item => item.type === kind)?.title || 'Control flow';
+  }
+
+  connectorClass(connector: BoardConnector): string {
+    const kind = connector.kind || 'CONTROL_FLOW';
+    return `connector-${kind.toLowerCase().replace('_', '-')}`;
+  }
+
+  connectorMarker(connector: BoardConnector): string {
+    return connector.kind === 'OBJECT_FLOW' ? 'url(#arrow-open)' : 'url(#arrow)';
+  }
+
   supportsVoice(type: TaskFormFieldType): boolean {
     return ['SHORT_TEXT', 'LONG_TEXT'].includes(type);
   }
@@ -1525,6 +737,9 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     if (type === 'GATEWAY') return 'Configuración de decisión';
     if (type === 'PARALLEL') return 'Configuración de paralelo';
     if (type === 'JOIN') return 'Configuración de unión';
+    if (type === 'OBJECT') return 'Configuración de objeto';
+    if (type === 'NOTE') return 'Configuración de nota';
+    if (type === 'REGION') return 'Configuración de región';
     return 'Configuración de fin';
   }
 
@@ -1558,10 +773,10 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     const source = this.nodes().find(node => node.id === connector.sourceId);
     const target = this.nodes().find(node => node.id === connector.targetId);
     if (!source || !target) return '';
-    const x1 = source.x + 154;
-    const y1 = source.y + 37;
+    const x1 = source.x + this.nodeWidth(source);
+    const y1 = source.y + this.nodeHeight(source) / 2;
     const x2 = target.x;
-    const y2 = target.y + 37;
+    const y2 = target.y + this.nodeHeight(target) / 2;
     const mid = Math.max(x1 + 40, (x1 + x2) / 2);
     return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
   }
@@ -1715,7 +930,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     if (this.voiceRecognition) {
       this.voiceRecognition.onresult = null;
       this.voiceRecognition.onend = null;
-      try { this.voiceRecognition.stop(); } catch {}
+      try { this.voiceRecognition.stop(); } catch { }
       this.voiceRecognition = undefined;
     }
     this.voiceListening.set(false);
@@ -2172,8 +1387,11 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     if (type === 'START') return 'Inicio';
     if (type === 'END') return 'Fin';
     if (type === 'GATEWAY') return 'Decisión';
-    if (type === 'PARALLEL') return 'Paralelo';
-    if (type === 'JOIN') return 'Unión';
+    if (type === 'PARALLEL') return 'fork';
+    if (type === 'JOIN') return 'join';
+    if (type === 'OBJECT') return 'Object';
+    if (type === 'NOTE') return 'Note';
+    if (type === 'REGION') return 'Interruptible activity region';
     return 'Nueva tarea';
   }
 
@@ -2454,10 +1672,26 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     this.syncRules();
   };
 
+  private onRegionResizeMove = (event: PointerEvent): void => {
+    if (!this.resizingRegionId) return;
+    const nextWidth = Math.max(180, Math.round(this.regionResizeStart.width + (event.clientX - this.regionResizeStart.x) / this.zoom()));
+    const nextHeight = Math.max(100, Math.round(this.regionResizeStart.height + (event.clientY - this.regionResizeStart.y) / this.zoom()));
+    this.nodes.update(nodes => nodes.map(node => node.id === this.resizingRegionId
+      ? { ...node, config: { ...(node.config || {}), width: nextWidth, height: nextHeight } }
+      : node));
+    this.syncRules();
+  };
+
   private stopLaneResize = (): void => {
     this.resizingLaneId = null;
     window.removeEventListener('pointermove', this.onLaneResizeMove);
     window.removeEventListener('pointerup', this.stopLaneResize);
+  };
+
+  private stopRegionResize = (): void => {
+    this.resizingRegionId = null;
+    window.removeEventListener('pointermove', this.onRegionResizeMove);
+    window.removeEventListener('pointerup', this.stopRegionResize);
   };
 
   private onPointerUp = (): void => {

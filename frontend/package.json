@@ -6,7 +6,7 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "set \"CHROME_BIN=C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\"&& ng test --no-watch --no-progress --browsers=ChromeHeadless"
   },
   "private": true,
   "packageManager": "npm@11.12.1",

@@ -1,3 +1,5 @@
 fastapi
 uvicorn
 httpx
+tensorflow-cpu==2.16.1
+faster-whisper==1.0.3

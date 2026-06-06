@@ -4,12 +4,6 @@ import { DashboardComponent } from './shared/components/dashboard/dashboard.comp
 import { HomeComponent } from './shared/components/home/home.component';
 import { authGuard } from './core/guards/auth.guard';
 import { roleGuard } from './core/guards/role.guard';
-import { PolicyListComponent } from './policies/components/policy-list/policy-list.component';
-import { PolicyFormComponent } from './policies/components/policy-form/policy-form.component';
-import { UserManagementComponent } from './admin/components/users/user-management.component';
-import { ClientManagementComponent } from './admin/components/users/client-management.component';
-import { DepartmentManagementComponent } from './admin/components/departments/department-management.component';
-import { ProcedureSimulatorComponent } from './execution/components/procedure-simulator/procedure-simulator.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: '/dashboard', pathMatch: 'full' },
@@ -26,45 +20,45 @@ export const routes: Routes = [
       { path: 'dashboard', component: HomeComponent },
       {
         path: 'users',
-        component: UserManagementComponent,
+        loadComponent: () => import('./admin/components/users/user-management.component').then(m => m.UserManagementComponent),
         canActivate: [roleGuard(['ADMIN'])]
       },
       {
         path: 'departments',
-        component: DepartmentManagementComponent,
+        loadComponent: () => import('./admin/components/departments/department-management.component').then(m => m.DepartmentManagementComponent),
         canActivate: [roleGuard(['ADMIN'])]
       },
       {
         path: 'clients',
-        component: ClientManagementComponent,
+        loadComponent: () => import('./admin/components/users/client-management.component').then(m => m.ClientManagementComponent),
         canActivate: [roleGuard(['ADMIN'])]
       },
 
       // Policies Routes
       {
         path: 'policies',
-        component: PolicyListComponent,
+        loadComponent: () => import('./policies/components/policy-list/policy-list.component').then(m => m.PolicyListComponent),
         canActivate: [roleGuard(['ADMIN', 'DESIGNER'])]
       },
       { 
         path: 'policies/new', 
-        component: PolicyFormComponent,
+        loadComponent: () => import('./policies/components/policy-form/policy-form.component').then(m => m.PolicyFormComponent),
         canActivate: [roleGuard(['ADMIN', 'DESIGNER'])]
       },
       { 
         path: 'policies/edit/:id', 
-        component: PolicyFormComponent,
+        loadComponent: () => import('./policies/components/policy-form/policy-form.component').then(m => m.PolicyFormComponent),
         canActivate: [roleGuard(['ADMIN', 'DESIGNER'])]
       },
       {
         path: 'policies/:id',
-        component: PolicyFormComponent,
+        loadComponent: () => import('./policies/components/policy-form/policy-form.component').then(m => m.PolicyFormComponent),
         canActivate: [roleGuard(['ADMIN', 'DESIGNER'])],
         data: { mode: 'view' }
       },
       {
         path: 'tramites',
-        component: ProcedureSimulatorComponent,
+        loadComponent: () => import('./execution/components/procedure-simulator/procedure-simulator.component').then(m => m.ProcedureSimulatorComponent),
         canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
         data: { operationView: 'procedures' }
       },
@@ -75,13 +69,13 @@ export const routes: Routes = [
       },
       {
         path: 'tasks/inbox',
-        component: ProcedureSimulatorComponent,
+        loadComponent: () => import('./execution/components/procedure-simulator/procedure-simulator.component').then(m => m.ProcedureSimulatorComponent),
         canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
         data: { operationView: 'inbox' }
       },
       {
         path: 'tasks/mine',
-        component: ProcedureSimulatorComponent,
+        loadComponent: () => import('./execution/components/procedure-simulator/procedure-simulator.component').then(m => m.ProcedureSimulatorComponent),
         canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
         data: { operationView: 'mine' }
       }

@@ -1,17 +1,9 @@
-# mobile
+# Mobile
 
-A new Flutter project.
+Flutter app for citizen-side procedure tracking and AI-assisted requests.
 
-## Getting Started
+## Notes
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- `lib/services/api_service.dart` keeps the base URL manual by design; switch the commented line when targeting local Android emulator.
+- The app includes signature capture and an AI request screen for text-driven intake, analysis, and report drafts.
+- Run widget tests with `flutter test` from the `mobile/` directory.
