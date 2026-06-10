@@ -3,13 +3,14 @@ import { ChangeDetectorRef, Component, OnDestroy, OnInit, signal } from '@angula
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { forkJoin } from 'rxjs';
+import { NgIconComponent } from '@ng-icons/core';
 import { OperationService, OperatorContext, ProcedureTask, ProcedureTicket, OperationTaskField } from '../../services/operation.service';
 import { Policy } from '../../../policies/models/policy.model';
 
 @Component({
   selector: 'app-procedure-simulator',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, NgIconComponent],
   template: `
     <div class="ops-page">
       <section class="ops-header">
@@ -119,7 +120,7 @@ import { Policy } from '../../../policies/models/policy.model';
               <h3>{{ p.name }}</h3>
               <p class="muted">Ingresá los datos del cliente para asociar este ticket.</p>
             </div>
-            <button class="modal-close" type="button" (click)="closeCreateModal()">×</button>
+            <button class="modal-close" type="button" (click)="closeCreateModal()"><ng-icon [name]="actionIcon('close')"></ng-icon></button>
           </header>
           <div class="task-modal-body">
             <div class="field">
@@ -151,7 +152,7 @@ import { Policy } from '../../../policies/models/policy.model';
               <h3>{{ task.formTitle || 'Formulario operativo' }}</h3>
               <p class="muted">Completá los campos definidos por el diseñador para esta tarea.</p>
             </div>
-            <button class="modal-close" type="button" (click)="closeTaskModal()">×</button>
+            <button class="modal-close" type="button" (click)="closeTaskModal()"><ng-icon [name]="actionIcon('close')"></ng-icon></button>
           </header>
 
           <div class="task-modal-body">
@@ -160,7 +161,7 @@ import { Policy } from '../../../policies/models/policy.model';
           <div class="field" *ngFor="let field of task.formFields || []">
             <div class="field-head">
               <label>{{ field.label }} <span *ngIf="field.required">*</span></label>
-              <button class="voice-btn" type="button" *ngIf="supportsVoice(field.type)" (click)="dictateField(task, field)">🎙 Dictar</button>
+              <button class="voice-btn" type="button" *ngIf="supportsVoice(field.type)" (click)="dictateField(task, field)"><ng-icon [name]="actionIcon('voice')"></ng-icon> Dictar</button>
             </div>
             <small class="field-help">{{ fieldHelp(field.type) }}</small>
 
@@ -227,6 +228,8 @@ import { Policy } from '../../../policies/models/policy.model';
     .task-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid rgba(226,232,240,.9); background: #f8fafc; }
     .task-modal-header h3 { margin-bottom: 4px; }
     .modal-close { width: 34px; height: 34px; border: 1px solid var(--color-border); border-radius: 999px; background: #fff; cursor: pointer; font-size: 22px; line-height: 1; color: var(--color-text-muted); }
+    .modal-close ng-icon,
+    .voice-btn ng-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; }
     .task-modal-body { padding: 18px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
     .field { display: flex; flex-direction: column; gap: 6px; }
     .field-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -268,6 +271,10 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
   private voiceRecognition: any;
 
   constructor(private operations: OperationService, private route: ActivatedRoute, private cdr: ChangeDetectorRef) {}
+
+  actionIcon(kind: 'close' | 'voice'): string {
+    return kind === 'close' ? 'lucideX' : 'lucideMic';
+  }
 
   ngOnInit(): void {
     this.view.set(this.route.snapshot.data['operationView'] || 'procedures');
@@ -465,7 +472,7 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
     if (value.loading) return `Subiendo ${value.name}...`;
     if (Array.isArray(value)) return `${value.length} archivo(s) subido(s): ${value.map(item => item.originalName || item.name).join(', ')}`;
     if (typeof value === 'object' && value?.originalName) {
-      return `${value.originalName} (${Math.round((value.size || 0) / 1024)} KB) - Subido ✅`;
+      return `${value.originalName} (${Math.round((value.size || 0) / 1024)} KB) - Uploaded`;
     }
     return String(value || '');
   }

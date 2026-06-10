@@ -214,7 +214,8 @@ export class UserManagementComponent implements OnInit {
   readonly roles = [
     { value: 'ADMIN' as UserRole, label: 'Administrador' },
     { value: 'DESIGNER' as UserRole, label: 'Diseñador' },
-    { value: 'OPERATOR' as UserRole, label: 'Funcionario' }
+    { value: 'OPERATOR' as UserRole, label: 'Funcionario' },
+    { value: 'AUDITOR' as UserRole, label: 'Auditor' }
   ];
 
   readonly assignableRoles = this.roles;

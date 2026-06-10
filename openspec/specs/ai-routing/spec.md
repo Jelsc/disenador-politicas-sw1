@@ -8,13 +8,20 @@ Predict the best route, delay risk, priorities, and anomalies for trámite execu
 
 ### Requirement: Route and risk prediction
 
-The system MUST return a predicted route, delay risk, and priority recommendation for a valid routing request.
+The system MUST derive route, delay risk, and priority guidance from available historical and execution performance signals.
 
-#### Scenario: Routing prediction succeeds
+#### Scenario: Prediction succeeds with history
 
-- GIVEN a valid routing request
-- WHEN the AI routing service processes it
-- THEN it returns route, risk, and priority values
+- GIVEN sufficient historical performance data exists
+- WHEN the AI routing service processes a valid request
+- THEN it returns route, risk, and priority guidance based on those signals
+
+#### Scenario: Insufficient history
+
+- GIVEN there is not enough historical data for a confident prediction
+- WHEN the AI routing service processes a request
+- THEN it returns a low-confidence or unavailable result
+- AND it MUST NOT invent a performance signal
 
 ### Requirement: Anomaly detection
 

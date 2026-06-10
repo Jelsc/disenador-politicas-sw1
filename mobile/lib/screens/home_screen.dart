@@ -6,6 +6,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/ai_request_draft.dart';
 import '../models/client_notification.dart';
 import '../models/procedure_ticket.dart';
 import '../services/api_service.dart';
@@ -43,6 +44,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<ClientNotification> _notifications = [];
   bool _isLoading = true;
   int _unreadCount = 0;
+  AiRequestDraft? _aiDraft;
+  bool _loadingAiDraft = true;
 
   @override
   void initState() {
@@ -53,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _setupNotifications();
       _loadDashboard();
     }
+    _loadAiDraft();
   }
 
   void _seedInitialState() {
@@ -60,6 +64,21 @@ class _HomeScreenState extends State<HomeScreen> {
     _notifications = widget.initialNotifications ?? [];
     _unreadCount = widget.initialUnreadCount ?? _notifications.where((notification) => !notification.read).length;
     _isLoading = false;
+  }
+
+  Future<void> _loadAiDraft() async {
+    final draft = await const AiRequestDraftStore().load();
+    if (!mounted) return;
+    setState(() {
+      _aiDraft = draft;
+      _loadingAiDraft = false;
+    });
+  }
+
+  Future<void> _clearAiDraft() async {
+    await const AiRequestDraftStore().clear();
+    if (!mounted) return;
+    setState(() => _aiDraft = null);
   }
 
   Future<String?> _token() async {
@@ -247,7 +266,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => AiRequestScreen()),
+                MaterialPageRoute(builder: (_) => AiRequestScreen(apiService: _api)),
               );
             },
             icon: const Icon(Icons.auto_awesome_outlined),
@@ -275,6 +294,12 @@ class _HomeScreenState extends State<HomeScreen> {
             : ListView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 children: [
+                  if (_aiDraft != null) ...[
+                    _buildAiResumeCard(),
+                    const SizedBox(height: 16),
+                  ] else if (_loadingAiDraft) ...[
+                    const SizedBox(height: 4),
+                  ],
                   _buildNotificationLedger(),
                   const SizedBox(height: 16),
                   if (_procedures.isEmpty) _buildEmptyState(),
@@ -339,6 +364,62 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () => _openNotifications(),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiResumeCard() {
+    final draft = _aiDraft!;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7E8),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFD99B45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.play_circle_outline, color: Color(0xFF92400E)),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Continuar solicitud IA',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(draft.summary),
+          const SizedBox(height: 4),
+          Text(
+            'Tenés una captura pendiente en ${draft.modeLabel.toLowerCase()}. Retomala sin perder el texto ni el audio guardado.',
+            style: const TextStyle(color: Color(0xFF7B7063)),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              TextButton(
+                onPressed: _clearAiDraft,
+                child: const Text('Descartar'),
+              ),
+              const Spacer(),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => AiRequestScreen(apiService: _api)),
+                  );
+                },
+                icon: const Icon(Icons.arrow_forward),
+                label: const Text('Reanudar'),
+              ),
+            ],
+          ),
         ],
       ),
     );

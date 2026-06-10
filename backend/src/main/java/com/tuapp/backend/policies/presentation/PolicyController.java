@@ -1,6 +1,7 @@
 package com.tuapp.backend.policies.presentation;
 
 import com.tuapp.backend.policies.application.PolicyService;
+import com.tuapp.backend.policies.application.PolicyDryRunReportResponse;
 import com.tuapp.backend.policies.application.PolicyEditorCandidateResponse;
 import com.tuapp.backend.policies.application.PolicyInvitationNotificationResponse;
 import com.tuapp.backend.policies.domain.Policy;
@@ -9,6 +10,7 @@ import com.tuapp.backend.policies.infrastructure.PolicyChangeLogDocument;
 import com.tuapp.backend.policies.infrastructure.PolicyVersionDocument;
 import com.tuapp.backend.policies.presentation.dto.PolicyAutosaveRequest;
 import com.tuapp.backend.policies.presentation.dto.PolicyChangeLogRequest;
+import com.tuapp.backend.policies.presentation.dto.PolicyDryRunRequest;
 import com.tuapp.backend.policies.presentation.dto.PolicyEditorsRequest;
 import com.tuapp.backend.policies.presentation.dto.PolicyRequest;
 import com.tuapp.backend.policies.presentation.dto.PolicyVersionRequest;
@@ -35,6 +37,11 @@ public class PolicyController {
     @GetMapping
     public ResponseEntity<List<Policy>> getAllPolicies(Authentication authentication) {
         return ResponseEntity.ok(policyService.getAllPolicies(username(authentication), isAdmin(authentication)));
+    }
+
+    @PostMapping("/dry-run")
+    public ResponseEntity<PolicyDryRunReportResponse> verifyPolicyDryRun(@Valid @RequestBody PolicyDryRunRequest request) {
+        return ResponseEntity.ok(policyService.verifyDryRun(request));
     }
 
     @GetMapping("/{id}")

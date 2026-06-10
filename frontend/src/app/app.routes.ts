@@ -33,12 +33,35 @@ export const routes: Routes = [
         loadComponent: () => import('./admin/components/users/client-management.component').then(m => m.ClientManagementComponent),
         canActivate: [roleGuard(['ADMIN'])]
       },
+      {
+        path: 'reports',
+        loadComponent: () => import('./reports/components/report-generator/report-generator.component').then(m => m.ReportGeneratorComponent),
+        canActivate: [roleGuard(['ADMIN', 'AUDITOR'])]
+      },
 
       // Policies Routes
       {
         path: 'policies',
         loadComponent: () => import('./policies/components/policy-list/policy-list.component').then(m => m.PolicyListComponent),
         canActivate: [roleGuard(['ADMIN', 'DESIGNER'])]
+      },
+      {
+        path: 'policies/:id/documents',
+        loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
+        canActivate: [roleGuard(['ADMIN', 'DESIGNER'])],
+        data: { repositoryScope: 'policy' }
+      },
+      {
+        path: 'tramites/:id/documents',
+        loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
+        canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
+        data: { repositoryScope: 'procedure', mode: 'view' }
+      },
+      {
+        path: 'documents',
+        loadComponent: () => import('./policies/components/policy-list/policy-list.component').then(m => m.PolicyListComponent),
+        canActivate: [roleGuard(['ADMIN', 'DESIGNER'])],
+        data: { launcher: 'document-repository' }
       },
       { 
         path: 'policies/new', 

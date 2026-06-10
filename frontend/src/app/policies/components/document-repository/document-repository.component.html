@@ -1,0 +1,211 @@
+<div class="repository-layout">
+  <header class="repository-header">
+    <div class="header-copy">
+      <a class="back-link" [routerLink]="backLink()">
+        <ng-icon name="lucideArrowLeft"></ng-icon>
+        Volver
+      </a>
+      <div>
+        <div class="title-row">
+          <h1>{{ repositoryTitle() }}</h1>
+          <span class="status-pill" [class.readonly]="readOnly()">{{ accessStateLabel() }}</span>
+        </div>
+        <p class="subtitle">{{ repositorySubtitle() }}</p>
+      </div>
+    </div>
+
+    <div class="header-meta">
+      <div class="meta-chip">
+        <ng-icon name="lucideShield"></ng-icon>
+        <span>{{ repositoryScope() === 'policy' ? 'Política' : 'Trámite' }}</span>
+      </div>
+      <div class="meta-chip soft">
+        <ng-icon name="lucideUserCircle"></ng-icon>
+        <span>{{ currentUsername() || 'usuario' }}</span>
+      </div>
+      <div class="meta-chip soft">
+        <ng-icon name="lucideClipboardList"></ng-icon>
+        <span>{{ permissionSummary().currentRole }}</span>
+      </div>
+      <div class="meta-chip soft">
+        <ng-icon name="lucideFolderOpen"></ng-icon>
+        <span>{{ permissionSummary().accessMode }}</span>
+      </div>
+      <div class="meta-chip soft">
+        <ng-icon name="lucideEye"></ng-icon>
+        <span>{{ versionStateLabel() }}</span>
+      </div>
+      <div class="meta-chip soft" *ngIf="repositoryScope() === 'procedure'">
+        <ng-icon name="lucideUsers"></ng-icon>
+        <span>{{ presenceStateLabel() }}</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="repository-grid">
+    <section class="panel settings-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Configuration and access</h2>
+          <p>Define who can consult, upload, and version documents in this workspace.</p>
+        </div>
+        <button class="action-button" type="button" (click)="saveSettings()" [disabled]="readOnly() || loading() || saving()">
+          <ng-icon name="lucideFolderOpen"></ng-icon>
+          {{ saving() ? 'Saving...' : 'Save settings' }}
+        </button>
+      </div>
+
+      <div class="permission-grid">
+        <article class="permission-card">
+          <span>Current role</span>
+          <strong>{{ permissionSummary().currentRole }}</strong>
+        </article>
+        <article class="permission-card">
+          <span>Allowed roles</span>
+          <strong>{{ permissionSummary().allowedRoles }}</strong>
+        </article>
+        <article class="permission-card">
+          <span>Allowed formats</span>
+          <strong>{{ permissionSummary().allowedFormats }}</strong>
+        </article>
+        <article class="permission-card">
+          <span>Max upload size</span>
+          <strong>{{ permissionSummary().maxFileSize }}</strong>
+        </article>
+      </div>
+
+      <div class="workspace-note">{{ permissionSummary().accessMode }}</div>
+
+      <div class="state-grid">
+        <article class="state-card">
+          <span>Permission state</span>
+          <strong>{{ permissionSummary().accessMode }}</strong>
+          <small>{{ permissionSummary().currentRole }}</small>
+        </article>
+        <article class="state-card">
+          <span>Version state</span>
+          <strong>{{ versionStateLabel() }}</strong>
+          <small>{{ selectedDocumentId() || 'No document selected' }}</small>
+        </article>
+        <article class="state-card" *ngIf="repositoryScope() === 'procedure'">
+          <span>Presence</span>
+          <strong>{{ presenceStateLabel() }}</strong>
+          <small>{{ presenceStateDetail() }}</small>
+        </article>
+      </div>
+
+      <form class="settings-form" [formGroup]="settingsForm">
+        <label>
+          <span>Policy ID</span>
+          <input type="text" formControlName="policyId" placeholder="policy-001" />
+        </label>
+
+        <label>
+          <span>Allowed roles</span>
+          <textarea rows="3" formControlName="allowedRolesText" placeholder="ADMIN, DESIGNER"></textarea>
+        </label>
+
+        <label>
+          <span>Allowed formats</span>
+          <textarea rows="3" formControlName="allowedFormatsText" placeholder="pdf, docx"></textarea>
+        </label>
+
+        <label>
+          <span>Max size (MB)</span>
+          <input type="number" min="1" formControlName="maxFileSizeMb" />
+        </label>
+      </form>
+
+      <div class="upload-panel">
+        <div class="panel-header compact">
+          <div>
+            <h2>Upload flow</h2>
+            <p>Attach a new file, optionally pin it to an existing document ID, and publish a fresh version.</p>
+          </div>
+          <button class="action-button" type="button" (click)="uploadDocument()" [disabled]="!canUpload() || loading() || uploading() || !selectedFile()">
+            <ng-icon name="lucideUpload"></ng-icon>
+            {{ uploading() ? 'Uploading...' : 'Upload version' }}
+          </button>
+        </div>
+
+        <div class="upload-form">
+          <label>
+            <span>Document ID</span>
+            <input type="text" [value]="uploadDocumentId()" (input)="uploadDocumentId.set(($any($event.target).value || '').toString())" placeholder="doc-001" [disabled]="!canUpload()" />
+          </label>
+
+          <label class="file-input">
+            <span>File</span>
+            <input type="file" (change)="selectUploadFile($event)" [disabled]="!canUpload()" />
+          </label>
+        </div>
+
+        <div class="upload-help">
+          <span>{{ selectedFile()?.name || 'No file selected' }}</span>
+          <small>Allowed: {{ permissionSummary().allowedFormats }} · Max {{ permissionSummary().maxFileSize }}</small>
+        </div>
+      </div>
+
+      <div class="alert" *ngIf="errorMessage()">{{ errorMessage() }}</div>
+    </section>
+
+    <section class="panel browser-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Documents and versions</h2>
+          <p>Operational history for each document, including version trail and trace events.</p>
+        </div>
+        <button class="action-button subtle" type="button" (click)="reloadRepository()" [disabled]="loading() || !repositoryId()">
+          <ng-icon name="lucideRefreshCw"></ng-icon>
+          Refresh
+        </button>
+      </div>
+
+      <div class="loading-state" *ngIf="loading()">Loading repository...</div>
+
+      <div class="empty-state" *ngIf="!loading() && repositoryDocuments().length === 0">
+        <ng-icon name="lucideFolderOpen"></ng-icon>
+        <h3>No documents uploaded</h3>
+        <p>Uploaded documents will appear here with their latest version and download link.</p>
+      </div>
+
+      <div class="document-list" *ngIf="!loading() && repositoryDocuments().length > 0">
+        <article class="document-item" *ngFor="let document of repositoryDocuments()" [class.active]="selectedDocumentId() === document.documentId">
+          <button class="document-select" type="button" (click)="openDocumentHistory(document)">
+            <div>
+              <div class="document-title">{{ document.originalFileName }}</div>
+              <div class="document-meta">{{ document.documentId }} · v{{ document.version }} · {{ document.createdBy }}</div>
+            </div>
+            <span class="version-pill">v{{ document.version }}</span>
+          </button>
+
+          <a class="download-link" [href]="versionDownloadUrl(document)" target="_blank" rel="noreferrer">
+            <ng-icon name="lucideDownload"></ng-icon>
+            Download
+          </a>
+        </article>
+      </div>
+
+      <div class="history-panel" *ngIf="documentVersions().length > 0">
+        <div class="history-header">
+          <h3>Selected history</h3>
+          <span>{{ selectedDocumentId() }} · {{ documentVersions().length }} version(s)</span>
+        </div>
+
+        <div class="history-row" *ngFor="let version of documentVersions()">
+          <div>
+            <strong>Version {{ version.version }}</strong>
+            <p>{{ version.traceAction }} · {{ version.traceNote }}</p>
+          </div>
+          <div class="history-actions">
+            <span>{{ version.createdBy }}</span>
+            <a class="download-link" [href]="versionDownloadUrl(version)" target="_blank" rel="noreferrer">
+              <ng-icon name="lucideDownload"></ng-icon>
+              Download
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>

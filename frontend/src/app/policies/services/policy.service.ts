@@ -21,6 +21,13 @@ export class PolicyService {
 
   constructor(private http: HttpClient) {}
 
+  verifyDryRun(policyName: string, rules: unknown): Observable<PolicyDryRunReport> {
+    return this.http.post<PolicyDryRunReport>(`${this.apiUrl}/dry-run`, {
+      policyName,
+      rules: typeof rules === 'string' ? rules : JSON.stringify(rules)
+    });
+  }
+
   getAllPolicies(): Observable<Policy[]> {
     return this.http.get<Policy[] | { value?: Policy[] }>(this.apiUrl).pipe(
       map(response => Array.isArray(response) ? response : (response.value ?? []))
@@ -113,4 +120,22 @@ export class PolicyService {
   deletePolicy(id: string): Observable<void> {
     return this.http.delete<void>(`${this.apiUrl}/${id}`);
   }
+}
+
+export interface PolicyDryRunCheck {
+  label: string;
+  status: 'pending' | 'running' | 'ok' | 'warning' | 'error';
+  detail: string;
+}
+
+export interface PolicyDryRunReport {
+  policyName: string;
+  status: 'ok' | 'warning' | 'error';
+  durationMs: number;
+  checkedPaths: number;
+  errors: string[];
+  warnings: string[];
+  bottlenecks: string[];
+  checks: PolicyDryRunCheck[];
+  recommendations: string[];
 }

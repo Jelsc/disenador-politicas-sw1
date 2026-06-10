@@ -6,15 +6,19 @@
       </button>
       <div>
         <div class="policy-title-row">
-          <input class="title-input" formControlName="name" placeholder="Nombre de la política" [readOnly]="editingBlocked()" />
-          <span class="status-pill" [class.locked]="publishedLocked()" [class.readonly]="isReadOnly()">{{ isReadOnly() ? 'Solo lectura' : publishedLocked() ? 'Publicada' : policyForm.value.status === 'EN_REVISION' ? 'En revisión' : 'Borrador' }}</span>
+          <input class="title-input" formControlName="name" placeholder="Nombre de la política"
+            [readOnly]="editingBlocked()" />
+          <span class="status-pill" [class.locked]="publishedLocked()" [class.readonly]="isReadOnly()">{{ isReadOnly() ?
+            'Solo lectura' : publishedLocked() ? 'Publicada' : policyForm.value.status === 'EN_REVISION' ? 'En revisión'
+            : 'Borrador' }}</span>
         </div>
         <div class="policy-state-line">
           <span>Pizarra colaborativa</span>
           <span>·</span>
           <span>Carriles, tareas, decisiones y publicación controlada</span>
           <span class="state-chip" *ngIf="autosavePending()">Autosave pendiente de versión</span>
-          <span class="state-chip warning" *ngIf="publishedLocked() && !isReadOnly()">Congelada: creá un borrador para editar</span>
+          <span class="state-chip warning" *ngIf="publishedLocked() && !isReadOnly()">Congelada: creá un borrador para
+            editar</span>
         </div>
       </div>
     </div>
@@ -30,20 +34,31 @@
 
       <div class="command-group">
         <span class="command-label">Publicación</span>
-        <button class="command-button emphasized" type="button" title="Versiones, historial y publicación" (click)="toggleVersionPanel()">
+        <button class="command-button emphasized" type="button" title="Versiones, historial y publicación"
+          (click)="toggleVersionPanel()">
           Versiones / publicar
         </button>
-        <button class="command-button" type="button" *ngIf="publishedLocked() && !isReadOnly()" (click)="duplicatePublishedVersion()">Nuevo borrador</button>
+        <button class="command-button" type="button" *ngIf="publishedLocked() && !isReadOnly()"
+          (click)="duplicatePublishedVersion()">Nuevo borrador</button>
       </div>
 
       <div class="command-group">
         <span class="command-label">Diseño</span>
-        <button class="command-button" type="button" title="Analizar el diseño actual" (click)="simulateCurrentDesign()">Simular</button>
-        <button class="command-button ai-command" type="button" title="Asistente IA de la pizarra" (click)="toggleAiPanel()">Asistente IA</button>
-        <button class="command-button" type="button" *ngIf="isEditMode() && canManageInvitations() && !isReadOnly()" (click)="toggleInvitePanel()">Invitar</button>
+        <button class="command-button" type="button" title="Verificar el diseño sin mutar el estado"
+          (click)="simulateCurrentDesign()">Verificar</button>
+        <button class="command-button ai-command" type="button" title="Asistente IA de la pizarra"
+          (click)="toggleAiPanel()">Asistente IA</button>
+        <button class="command-button" type="button" *ngIf="isEditMode() && canManageInvitations() && !isReadOnly()"
+          (click)="toggleInvitePanel()">Invitar</button>
+        <button class="command-button" type="button" [disabled]="!policyId()" (click)="openDocumentRepository()"
+          title="Abrir el repositorio documental de esta política">
+          <ng-icon name="lucideFolderOpen"></ng-icon>
+          Repositorio documental
+        </button>
       </div>
 
-      <button class="btn-primary save-command" *ngIf="!isReadOnly()" (click)="onSubmit()" [disabled]="loading() || policyForm.invalid || publishedLocked()">
+      <button class="btn-primary save-command" *ngIf="!isReadOnly()" (click)="onSubmit()"
+        [disabled]="loading() || policyForm.invalid || publishedLocked()">
         {{ loading() ? 'Guardando...' : 'Guardar borrador' }}
       </button>
     </div>
@@ -58,7 +73,8 @@
         </div>
 
         <div class="component-grid">
-          <button class="tool-tile uml-tile" *ngFor="let item of umlNodePalette" [disabled]="editingBlocked()" draggable="true" (dragstart)="startComponentDrag(item.type, $event)" (dragend)="finishPaletteDrag()">
+          <button class="tool-tile uml-tile" *ngFor="let item of umlNodePalette" [disabled]="editingBlocked()"
+            draggable="true" (dragstart)="startComponentDrag(item.type, $event)" (dragend)="finishPaletteDrag()">
             <span class="uml-tile-preview" [ngClass]="['uml-' + item.shape, 'tile-' + item.type.toLowerCase()]">
               <span class="uml-tile-marker">{{ item.marker }}</span>
             </span>
@@ -69,11 +85,14 @@
 
         <div class="connector-mode-panel">
           <div class="connector-variant-grid">
-            <button class="connector-variant-btn" *ngFor="let variant of connectorVariants" type="button" [class.active]="selectedConnectorKind() === variant.type" [disabled]="editingBlocked()" (click)="selectConnectorKind(variant.type)" [title]="variant.title">
+            <button class="connector-variant-btn" *ngFor="let variant of connectorVariants" type="button"
+              [class.active]="selectedConnectorKind() === variant.type" [disabled]="editingBlocked()"
+              (click)="selectConnectorKind(variant.type)" [title]="variant.title">
               <span class="connector-preview" [ngClass]="variant.previewClass"></span>
             </button>
           </div>
-          <button class="compact-action connector-action" [class.active]="connectMode()" [disabled]="editingBlocked()" (click)="toggleConnectMode()">
+          <button class="compact-action connector-action" [class.active]="connectMode()" [disabled]="editingBlocked()"
+            (click)="toggleConnectMode()">
             <span class="connector-action-top">{{ connectorKindLabel(selectedConnectorKind()) }}</span>
             <span>{{ connectMode() ? 'Seleccionando nodos' : 'Conectar' }}</span>
           </button>
@@ -88,15 +107,9 @@
           </button>
         </div>
         <div class="department-list" *ngIf="departmentsPanelOpen()">
-          <button
-            class="department-chip compact-chip"
-            *ngFor="let department of availableDepartments()"
-            [disabled]="editingBlocked()"
-            draggable="true"
-            (dragstart)="startDepartmentDrag(department.id, $event)"
-            (dragend)="finishPaletteDrag()"
-            (click)="addDepartmentLane(department)"
-          >
+          <button class="department-chip compact-chip" *ngFor="let department of availableDepartments()"
+            [disabled]="editingBlocked()" draggable="true" (dragstart)="startDepartmentDrag(department.id, $event)"
+            (dragend)="finishPaletteDrag()" (click)="addDepartmentLane(department)">
             <span>{{ department.name }}</span>
           </button>
         </div>
@@ -106,7 +119,8 @@
         <div class="section-inline-header">
           <label>Descripción</label>
         </div>
-        <textarea class="description-input compact-description" formControlName="description" rows="3" placeholder="Qué resuelve esta política..."></textarea>
+        <textarea class="description-input compact-description" formControlName="description" rows="3"
+          placeholder="Qué resuelve esta política..."></textarea>
       </section>
     </aside>
 
@@ -115,76 +129,89 @@
         <span class="surface-label">Pizarra colaborativa</span>
         <span class="surface-hint">Base lista para sincronizar nodes/connectors por WebSocket.</span>
         <span class="surface-hint" *ngIf="policyVersions().length">{{ policyVersions().length }} versión(es)</span>
-        <span class="surface-hint" *ngIf="collaboration.usersPresent().length">En pizarra: {{ collaboration.usersPresent().join(', ') }}</span>
+        <span class="surface-hint" *ngIf="collaboration.usersPresent().length">En pizarra: {{
+          collaboration.usersPresent().join(', ') }}</span>
         <span class="validation-message" *ngIf="validationMessage()">{{ validationMessage() }}</span>
         <div class="zoom-controls">
-          <button (click)="zoomOut()">−</button>
+          <button type="button" (click)="zoomOut()" aria-label="Alejar vista" title="Alejar vista">
+            <ng-icon [name]="boardControlIcon('zoom-out')"></ng-icon>
+          </button>
           <span>{{ zoomPercent() }}%</span>
-          <button (click)="zoomIn()">+</button>
-          <button (click)="resetZoom()">Reset</button>
+          <button type="button" (click)="zoomIn()" aria-label="Acercar vista" title="Acercar vista">
+            <ng-icon [name]="boardControlIcon('zoom-in')"></ng-icon>
+          </button>
+          <button type="button" (click)="resetZoom()" aria-label="Restablecer zoom" title="Restablecer zoom">
+            <ng-icon name="lucideRotateCcw"></ng-icon>
+            Reset
+          </button>
         </div>
       </div>
 
-      <div
-        class="lanes-canvas"
-        [class.panning]="isPanningBoard()"
-        (contextmenu)="$event.preventDefault()"
-        (pointerdown)="startBoardPan($event)"
-        (dragover)="handleBoardDragOver($event)"
-        (dragleave)="clearLaneHighlight()"
-        (drop)="dropDepartmentOnBoard($event)"
-      >
+      <div class="lanes-canvas" [class.panning]="isPanningBoard()" (contextmenu)="$event.preventDefault()"
+        (pointerdown)="startBoardPan($event)" (dragover)="handleBoardDragOver($event)"
+        (dragleave)="clearLaneHighlight()" (drop)="dropDepartmentOnBoard($event)">
         <div class="board-content" [style.transform]="boardTransform()" [style.height.px]="boardContentHeight()">
-        <svg class="connector-layer">
-          <defs>
-            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z"></path>
-            </marker>
-            <marker id="arrow-open" viewBox="0 0 12 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10" fill="none" stroke-width="1.8"></path>
-            </marker>
-          </defs>
-          <path *ngFor="let connector of connectors()" class="connector-path" [ngClass]="connectorClass(connector)" [class.removable]="!editingBlocked()" [attr.d]="connectorPath(connector)" [attr.marker-end]="connectorMarker(connector)" (click)="removeConnector(connector.id, $event)"></path>
-        </svg>
+          <svg class="connector-layer">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
+                orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z"></path>
+              </marker>
+              <marker id="arrow-open" viewBox="0 0 12 10" refX="10" refY="5" markerWidth="8" markerHeight="8"
+                orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10" fill="none" stroke-width="1.8"></path>
+              </marker>
+            </defs>
+            <path *ngFor="let connector of connectors()" class="connector-path" [ngClass]="connectorClass(connector)"
+              [class.removable]="!editingBlocked()" [attr.d]="connectorPath(connector)"
+              [attr.marker-end]="connectorMarker(connector)" (click)="removeConnector(connector.id, $event)"></path>
+          </svg>
 
-        <div class="empty-board" *ngIf="boardDepartments().length === 0">
-          <ng-icon name="lucideBuilding2"></ng-icon>
-          <h2>Elegí los departamentos participantes</h2>
-          <p>Arrastrá un departamento desde el panel izquierdo para crear el primer carril de esta política.</p>
-        </div>
-
-        <section class="lane" *ngFor="let department of boardDepartments(); let i = index" [class.drag-target]="isLaneHighlightActive() && hoveredLaneId() === department.id" [style.top.px]="laneTop(i)" [style.height.px]="laneHeightFor(department.id)">
-          <div class="lane-title">
-            <span>{{ department.name }}</span>
-            <button class="lane-remove" type="button" *ngIf="!editingBlocked()" (pointerdown)="$event.stopPropagation()" (click)="removeDepartmentLane(department.id, $event)">×</button>
+          <div class="empty-board" *ngIf="boardDepartments().length === 0">
+            <ng-icon name="lucideBuilding2"></ng-icon>
+            <h2>Elegí los departamentos participantes</h2>
+            <p>Arrastrá un departamento desde el panel izquierdo para crear el primer carril de esta política.</p>
           </div>
-          <div class="lane-description">{{ department.description || 'Departamento disponible para el flujo' }}</div>
-          <button class="lane-resize" type="button" *ngIf="!editingBlocked()" (pointerdown)="startLaneResize(department.id, $event)"></button>
-        </section>
 
-        <article
-          *ngFor="let node of nodes()"
-          class="board-node uml-node"
-          [class.selected]="connectorSourceId() === node.id"
-          [ngClass]="['node-' + node.type.toLowerCase(), 'uml-' + nodeShape(node.type)]"
-          [style.left.px]="node.x"
-          [style.top.px]="node.y"
-          [style.width.px]="nodeWidth(node)"
-          [style.minHeight.px]="nodeHeight(node)"
-          [style.zIndex]="node.config?.zIndex || 3"
-          (pointerdown)="startDrag(node, $event)"
-          (click)="handleNodeClick(node, $event)"
-          (dblclick)="openNodeConfig(node, $event)"
-        >
-           <div class="uml-node-shell">
-             <input *ngIf="!usesExternalLabel(node.type)" class="node-label" [readOnly]="editingBlocked()" [(ngModel)]="node.label" (ngModelChange)="syncRules()" (pointerdown)="$event.stopPropagation()" />
-             <div class="node-meta" *ngIf="node.type === 'TASK' && node.config?.form?.fields?.length">Formulario · {{ node.config?.form?.fields?.length }} campo(s)</div>
+          <section class="lane" *ngFor="let department of boardDepartments(); let i = index"
+            [class.drag-target]="isLaneHighlightActive() && hoveredLaneId() === department.id"
+            [style.top.px]="laneTop(i)" [style.height.px]="laneHeightFor(department.id)">
+            <div class="lane-title">
+              <span>{{ department.name }}</span>
+              <button class="lane-remove" type="button" *ngIf="!editingBlocked()"
+                (pointerdown)="$event.stopPropagation()" (click)="removeDepartmentLane(department.id, $event)"
+                aria-label="Eliminar carril" title="Eliminar carril"><ng-icon name="lucideX"></ng-icon></button>
             </div>
-            <input *ngIf="usesExternalLabel(node.type)" class="node-label external" [ngClass]="externalLabelClass(node.type)" [readOnly]="editingBlocked()" [(ngModel)]="node.label" (ngModelChange)="syncRules()" (pointerdown)="$event.stopPropagation()" />
-            <button class="region-resize-btn" type="button" *ngIf="node.type === 'REGION' && !editingBlocked()" (pointerdown)="startRegionResize(node, $event)" title="Redimensionar región">⤡</button>
-            <button class="node-send-back" type="button" *ngIf="node.type === 'REGION' && !editingBlocked()" (pointerdown)="stopNodeAction($event)" (click)="sendNodeToBack(node.id, $event)" title="Enviar al fondo">↓</button>
-            <button class="node-remove" type="button" *ngIf="!editingBlocked()" (pointerdown)="stopNodeAction($event)" (click)="removeNode(node.id, $event)">×</button>
-        </article>
+            <div class="lane-description">{{ department.description || 'Departamento disponible para el flujo' }}</div>
+            <button class="lane-resize" type="button" *ngIf="!editingBlocked()"
+              (pointerdown)="startLaneResize(department.id, $event)"></button>
+          </section>
+
+          <article *ngFor="let node of nodes()" class="board-node uml-node"
+            [class.selected]="connectorSourceId() === node.id"
+            [ngClass]="['node-' + node.type.toLowerCase(), 'uml-' + nodeShape(node.type)]" [style.left.px]="node.x"
+            [style.top.px]="node.y" [style.width.px]="nodeWidth(node)" [style.minHeight.px]="nodeHeight(node)"
+            [style.zIndex]="node.config?.zIndex || 3" (pointerdown)="startDrag(node, $event)"
+            (click)="handleNodeClick(node, $event)" (dblclick)="openNodeConfig(node, $event)">
+            <div class="uml-node-shell">
+              <input *ngIf="!usesExternalLabel(node.type)" class="node-label" [readOnly]="editingBlocked()"
+                [(ngModel)]="node.label" (ngModelChange)="syncRules()" (pointerdown)="$event.stopPropagation()" />
+              <div class="node-meta" *ngIf="node.type === 'TASK' && node.config?.form?.fields?.length">Formulario · {{
+                node.config?.form?.fields?.length }} campo(s)</div>
+            </div>
+            <input *ngIf="usesExternalLabel(node.type)" class="node-label external"
+              [ngClass]="externalLabelClass(node.type)" [readOnly]="editingBlocked()" [(ngModel)]="node.label"
+              (ngModelChange)="syncRules()" (pointerdown)="$event.stopPropagation()" />
+            <button class="region-resize-btn" type="button" *ngIf="node.type === 'REGION' && !editingBlocked()"
+              (pointerdown)="startRegionResize(node, $event)" title="Redimensionar región"
+              aria-label="Redimensionar región"><ng-icon [name]="boardControlIcon('resize-region')"></ng-icon></button>
+            <button class="node-send-back" type="button" *ngIf="node.type === 'REGION' && !editingBlocked()"
+              (pointerdown)="stopNodeAction($event)" (click)="sendNodeToBack(node.id, $event)" title="Enviar al fondo"
+              aria-label="Enviar al fondo"><ng-icon [name]="boardControlIcon('send-back')"></ng-icon></button>
+            <button class="node-remove" type="button" *ngIf="!editingBlocked()" (pointerdown)="stopNodeAction($event)"
+              (click)="removeNode(node.id, $event)" aria-label="Eliminar nodo" title="Eliminar nodo"><ng-icon
+                name="lucideX"></ng-icon></button>
+          </article>
         </div>
       </div>
 
@@ -196,7 +223,8 @@
               <p>Estos campos los completa el operador. El cliente queda para seguimiento y firma puntual.</p>
             </div>
           </div>
-          <button class="form-field-tool" type="button" *ngFor="let fieldType of taskFormFieldTypes" [disabled]="editingBlocked()" (click)="addTaskFormField(fieldType.type)">
+          <button class="form-field-tool" type="button" *ngFor="let fieldType of taskFormFieldTypes"
+            [disabled]="editingBlocked()" (click)="addTaskFormField(fieldType.type)">
             <strong>{{ fieldType.label }}</strong>
             <small>{{ fieldType.help }}</small>
           </button>
@@ -217,22 +245,34 @@
 
           <div class="form-paper">
             <label>Título del formulario</label>
-            <input class="config-input form-title-input" [ngModel]="taskNode.config?.form?.title || ('Formulario de ' + taskNode.label)" (ngModelChange)="updateTaskFormTitle($event)" [readOnly]="editingBlocked()" />
+            <input class="config-input form-title-input"
+              [ngModel]="taskNode.config?.form?.title || ('Formulario de ' + taskNode.label)"
+              (ngModelChange)="updateTaskFormTitle($event)" [readOnly]="editingBlocked()" />
 
             <div class="empty-form" *ngIf="taskFormFields(taskNode).length === 0">
-              Agregá campos operativos desde la izquierda. Podés repetir tipos: varios textos, varios archivos o varios checkbox.
+              Agregá campos operativos desde la izquierda. Podés repetir tipos: varios textos, varios archivos o varios
+              checkbox.
             </div>
 
-            <article class="form-field-card" *ngFor="let field of taskFormFields(taskNode); let i = index" [class.selected]="selectedFormFieldId() === field.id" (click)="selectTaskFormField(field.id)">
+            <article class="form-field-card" *ngFor="let field of taskFormFields(taskNode); let i = index"
+              [class.selected]="selectedFormFieldId() === field.id" (click)="selectTaskFormField(field.id)">
               <div>
                 <strong>{{ field.label }}</strong>
-                <p>{{ formFieldLabel(field.type) }}<span *ngIf="field.required"> · Obligatorio</span><span *ngIf="field.visibleToClient"> · Reflejado al cliente</span><span *ngIf="field.usedForDecision"> · Usado por decisión</span></p>
+                <p>{{ formFieldLabel(field.type) }}<span *ngIf="field.required"> · Obligatorio</span><span
+                    *ngIf="field.visibleToClient"> · Reflejado al cliente</span><span *ngIf="field.usedForDecision"> ·
+                    Usado por decisión</span></p>
               </div>
               <div class="field-card-actions">
-                <button type="button" [disabled]="i === 0 || editingBlocked()" (click)="moveTaskFormField(field.id, -1, $event)">↑</button>
-                <button type="button" [disabled]="i === taskFormFields(taskNode).length - 1 || editingBlocked()" (click)="moveTaskFormField(field.id, 1, $event)">↓</button>
-                <button type="button" [disabled]="editingBlocked()" (click)="duplicateTaskFormField(field.id, $event)">Duplicar</button>
-                <button type="button" [disabled]="editingBlocked()" (click)="removeTaskFormField(field.id, $event)">×</button>
+                <button type="button" [disabled]="i === 0 || editingBlocked()"
+                  (click)="moveTaskFormField(field.id, -1, $event)" aria-label="Subir campo"
+                  title="Subir campo"><ng-icon [name]="boardControlIcon('field-up')"></ng-icon></button>
+                <button type="button" [disabled]="i === taskFormFields(taskNode).length - 1 || editingBlocked()"
+                  (click)="moveTaskFormField(field.id, 1, $event)" aria-label="Bajar campo" title="Bajar campo"><ng-icon
+                    [name]="boardControlIcon('field-down')"></ng-icon></button>
+                <button type="button" [disabled]="editingBlocked()"
+                  (click)="duplicateTaskFormField(field.id, $event)">Duplicar</button>
+                <button type="button" [disabled]="editingBlocked()" (click)="removeTaskFormField(field.id, $event)"
+                  aria-label="Eliminar campo" title="Eliminar campo"><ng-icon name="lucideX"></ng-icon></button>
               </div>
             </article>
           </div>
@@ -244,76 +284,121 @@
               <h3>{{ selectedTaskFormField() ? 'Configuración del campo' : 'Configuración de tarea' }}</h3>
               <p>{{ selectedTaskFormFieldLabel() || 'Reglas de ejecución del funcionario y visibilidad externa' }}</p>
             </div>
-            <button class="config-close" type="button" (click)="closeTaskFormEditor()">×</button>
+            <button class="config-close" type="button" (click)="closeTaskFormEditor()" aria-label="Cerrar editor"
+              title="Cerrar editor"><ng-icon name="lucideX"></ng-icon></button>
           </div>
 
           <ng-container *ngIf="selectedTaskFormField() as field; else taskSettings">
             <label>Etiqueta</label>
-            <input class="config-input" [ngModel]="field.label" (ngModelChange)="updateTaskFormField(field.id, { label: $event })" [readOnly]="editingBlocked()" />
+            <input class="config-input" [ngModel]="field.label"
+              (ngModelChange)="updateTaskFormField(field.id, { label: $event })" [readOnly]="editingBlocked()" />
             <label *ngIf="supportsPlaceholder(field.type)">Placeholder</label>
-            <input *ngIf="supportsPlaceholder(field.type)" class="config-input" [ngModel]="field.placeholder || ''" (ngModelChange)="updateTaskFormField(field.id, { placeholder: $event })" [readOnly]="editingBlocked()" />
-            <label class="config-check"><input type="checkbox" [ngModel]="field.required || false" (ngModelChange)="updateTaskFormField(field.id, { required: $event })" [disabled]="editingBlocked()" /> Obligatorio</label>
-            <label class="config-check"><input type="checkbox" [ngModel]="field.visibleToClient || false" (ngModelChange)="updateTaskFormField(field.id, { visibleToClient: $event })" [disabled]="editingBlocked()" /> Reflejar valor al cliente</label>
-            <label class="config-check"><input type="checkbox" [ngModel]="field.notifyClient || false" (ngModelChange)="updateTaskFormField(field.id, { notifyClient: $event })" [disabled]="editingBlocked()" /> Notificar al cliente por este campo</label>
-            <label class="config-check" *ngIf="supportsVoice(field.type)"><input type="checkbox" [ngModel]="field.voiceInputEnabled || false" (ngModelChange)="updateTaskFormField(field.id, { voiceInputEnabled: $event })" [disabled]="editingBlocked()" /> Permitir dictado por voz</label>
-            <label class="config-check" *ngIf="supportsDecision(field.type)"><input type="checkbox" [ngModel]="field.usedForDecision || false" (ngModelChange)="updateTaskFormField(field.id, { usedForDecision: $event })" [disabled]="editingBlocked()" /> Usar para decisión</label>
+            <input *ngIf="supportsPlaceholder(field.type)" class="config-input" [ngModel]="field.placeholder || ''"
+              (ngModelChange)="updateTaskFormField(field.id, { placeholder: $event })" [readOnly]="editingBlocked()" />
+            <label class="config-check"><input type="checkbox" [ngModel]="field.required || false"
+                (ngModelChange)="updateTaskFormField(field.id, { required: $event })" [disabled]="editingBlocked()" />
+              Obligatorio</label>
+            <label class="config-check"><input type="checkbox" [ngModel]="field.visibleToClient || false"
+                (ngModelChange)="updateTaskFormField(field.id, { visibleToClient: $event })"
+                [disabled]="editingBlocked()" /> Reflejar valor al cliente</label>
+            <label class="config-check"><input type="checkbox" [ngModel]="field.notifyClient || false"
+                (ngModelChange)="updateTaskFormField(field.id, { notifyClient: $event })"
+                [disabled]="editingBlocked()" /> Notificar al cliente por este campo</label>
+            <label class="config-check" *ngIf="supportsVoice(field.type)"><input type="checkbox"
+                [ngModel]="field.voiceInputEnabled || false"
+                (ngModelChange)="updateTaskFormField(field.id, { voiceInputEnabled: $event })"
+                [disabled]="editingBlocked()" /> Permitir dictado por voz</label>
+            <label class="config-check" *ngIf="supportsDecision(field.type)"><input type="checkbox"
+                [ngModel]="field.usedForDecision || false"
+                (ngModelChange)="updateTaskFormField(field.id, { usedForDecision: $event })"
+                [disabled]="editingBlocked()" /> Usar para decisión</label>
 
             <ng-container *ngIf="supportsOptions(field.type)">
               <label>Opciones</label>
-              <textarea class="config-input" rows="4" [ngModel]="optionsText(field)" (ngModelChange)="updateTaskFormField(field.id, { options: splitOptions($event) })" [readOnly]="editingBlocked()"></textarea>
+              <textarea class="config-input" rows="4" [ngModel]="optionsText(field)"
+                (ngModelChange)="updateTaskFormField(field.id, { options: splitOptions($event) })"
+                [readOnly]="editingBlocked()"></textarea>
             </ng-container>
 
             <ng-container *ngIf="field.type === 'SHORT_TEXT' || field.type === 'LONG_TEXT'">
               <label>Longitud máxima</label>
-              <input class="config-input" type="number" [ngModel]="field.maxLength || ''" (ngModelChange)="updateTaskFormField(field.id, { maxLength: numberValue($event) })" [readOnly]="editingBlocked()" />
+              <input class="config-input" type="number" [ngModel]="field.maxLength || ''"
+                (ngModelChange)="updateTaskFormField(field.id, { maxLength: numberValue($event) })"
+                [readOnly]="editingBlocked()" />
             </ng-container>
 
             <ng-container *ngIf="field.type === 'NUMBER'">
               <label>Valor mínimo</label>
-              <input class="config-input" type="number" [ngModel]="field.minValue || ''" (ngModelChange)="updateTaskFormField(field.id, { minValue: numberValue($event) })" [readOnly]="editingBlocked()" />
+              <input class="config-input" type="number" [ngModel]="field.minValue || ''"
+                (ngModelChange)="updateTaskFormField(field.id, { minValue: numberValue($event) })"
+                [readOnly]="editingBlocked()" />
               <label>Valor máximo</label>
-              <input class="config-input" type="number" [ngModel]="field.maxValue || ''" (ngModelChange)="updateTaskFormField(field.id, { maxValue: numberValue($event) })" [readOnly]="editingBlocked()" />
+              <input class="config-input" type="number" [ngModel]="field.maxValue || ''"
+                (ngModelChange)="updateTaskFormField(field.id, { maxValue: numberValue($event) })"
+                [readOnly]="editingBlocked()" />
               <label>Unidad</label>
-              <input class="config-input" [ngModel]="field.unit || ''" (ngModelChange)="updateTaskFormField(field.id, { unit: $event })" [readOnly]="editingBlocked()" />
+              <input class="config-input" [ngModel]="field.unit || ''"
+                (ngModelChange)="updateTaskFormField(field.id, { unit: $event })" [readOnly]="editingBlocked()" />
             </ng-container>
 
             <ng-container *ngIf="field.type === 'DATE'">
               <label>Fecha mínima</label>
-              <input class="config-input" type="date" [ngModel]="field.minDate || ''" (ngModelChange)="updateTaskFormField(field.id, { minDate: $event })" [readOnly]="editingBlocked()" />
+              <input class="config-input" type="date" [ngModel]="field.minDate || ''"
+                (ngModelChange)="updateTaskFormField(field.id, { minDate: $event })" [readOnly]="editingBlocked()" />
               <label>Fecha máxima</label>
-              <input class="config-input" type="date" [ngModel]="field.maxDate || ''" (ngModelChange)="updateTaskFormField(field.id, { maxDate: $event })" [readOnly]="editingBlocked()" />
-              <label class="config-check"><input type="checkbox" [ngModel]="field.allowFutureDate || false" (ngModelChange)="updateTaskFormField(field.id, { allowFutureDate: $event })" [disabled]="editingBlocked()" /> Permitir fecha futura</label>
+              <input class="config-input" type="date" [ngModel]="field.maxDate || ''"
+                (ngModelChange)="updateTaskFormField(field.id, { maxDate: $event })" [readOnly]="editingBlocked()" />
+              <label class="config-check"><input type="checkbox" [ngModel]="field.allowFutureDate || false"
+                  (ngModelChange)="updateTaskFormField(field.id, { allowFutureDate: $event })"
+                  [disabled]="editingBlocked()" /> Permitir fecha futura</label>
             </ng-container>
 
             <ng-container *ngIf="field.type === 'FILE'">
               <label>Formatos permitidos</label>
-              <input class="config-input" placeholder="pdf,jpg,png" [ngModel]="(field.allowedFormats || []).join(', ')" (ngModelChange)="updateTaskFormField(field.id, { allowedFormats: splitCsv($event) })" [readOnly]="editingBlocked()" />
+              <input class="config-input" placeholder="pdf,jpg,png" [ngModel]="(field.allowedFormats || []).join(', ')"
+                (ngModelChange)="updateTaskFormField(field.id, { allowedFormats: splitCsv($event) })"
+                [readOnly]="editingBlocked()" />
               <label>Cantidad máxima</label>
-              <input class="config-input" type="number" [ngModel]="field.maxFiles || 1" (ngModelChange)="updateTaskFormField(field.id, { maxFiles: numberValue($event) })" [readOnly]="editingBlocked()" />
+              <input class="config-input" type="number" [ngModel]="field.maxFiles || 1"
+                (ngModelChange)="updateTaskFormField(field.id, { maxFiles: numberValue($event) })"
+                [readOnly]="editingBlocked()" />
               <label>Tamaño máximo por archivo (MB)</label>
-              <input class="config-input" type="number" [ngModel]="field.maxFileSizeMb || 10" (ngModelChange)="updateTaskFormField(field.id, { maxFileSizeMb: numberValue($event) })" [readOnly]="editingBlocked()" />
+              <input class="config-input" type="number" [ngModel]="field.maxFileSizeMb || 10"
+                (ngModelChange)="updateTaskFormField(field.id, { maxFileSizeMb: numberValue($event) })"
+                [readOnly]="editingBlocked()" />
             </ng-container>
 
             <ng-container *ngIf="field.type === 'RESULT'">
-              <label class="config-check"><input type="checkbox" [ngModel]="field.requiresCommentOnReject || false" (ngModelChange)="updateTaskFormField(field.id, { requiresCommentOnReject: $event })" [disabled]="editingBlocked()" /> Requiere observación si rechaza</label>
-              <label class="config-check"><input type="checkbox" [ngModel]="field.requiresCommentOnObserve || false" (ngModelChange)="updateTaskFormField(field.id, { requiresCommentOnObserve: $event })" [disabled]="editingBlocked()" /> Requiere observación si observa</label>
+              <label class="config-check"><input type="checkbox" [ngModel]="field.requiresCommentOnReject || false"
+                  (ngModelChange)="updateTaskFormField(field.id, { requiresCommentOnReject: $event })"
+                  [disabled]="editingBlocked()" /> Requiere observación si rechaza</label>
+              <label class="config-check"><input type="checkbox" [ngModel]="field.requiresCommentOnObserve || false"
+                  (ngModelChange)="updateTaskFormField(field.id, { requiresCommentOnObserve: $event })"
+                  [disabled]="editingBlocked()" /> Requiere observación si observa</label>
             </ng-container>
 
             <ng-container *ngIf="field.type === 'SIGNATURE'">
               <label>Mensaje para solicitar firma al cliente</label>
-              <textarea class="config-input" rows="3" [ngModel]="field.signatureMessage || ''" (ngModelChange)="updateTaskFormField(field.id, { signatureMessage: $event })" [readOnly]="editingBlocked()"></textarea>
+              <textarea class="config-input" rows="3" [ngModel]="field.signatureMessage || ''"
+                (ngModelChange)="updateTaskFormField(field.id, { signatureMessage: $event })"
+                [readOnly]="editingBlocked()"></textarea>
               <label>Tiempo límite para firma touch (horas)</label>
-              <input class="config-input" type="number" [ngModel]="field.signatureDeadlineHours || ''" (ngModelChange)="updateTaskFormField(field.id, { signatureDeadlineHours: numberValue($event) })" [readOnly]="editingBlocked()" />
+              <input class="config-input" type="number" [ngModel]="field.signatureDeadlineHours || ''"
+                (ngModelChange)="updateTaskFormField(field.id, { signatureDeadlineHours: numberValue($event) })"
+                [readOnly]="editingBlocked()" />
             </ng-container>
           </ng-container>
 
           <ng-template #taskSettings>
             <label>Nombre de la tarea</label>
-            <input class="config-input" [ngModel]="taskNode.label" (ngModelChange)="updateTaskNodeLabel($event)" [readOnly]="editingBlocked()" />
+            <input class="config-input" [ngModel]="taskNode.label" (ngModelChange)="updateTaskNodeLabel($event)"
+              [readOnly]="editingBlocked()" />
             <label>Descripción</label>
-            <textarea class="config-input" rows="3" [ngModel]="taskNode.config?.description || ''" (ngModelChange)="updateTaskNodeConfig({ description: $event })" [readOnly]="editingBlocked()"></textarea>
+            <textarea class="config-input" rows="3" [ngModel]="taskNode.config?.description || ''"
+              (ngModelChange)="updateTaskNodeConfig({ description: $event })" [readOnly]="editingBlocked()"></textarea>
             <label>Tipo de tarea</label>
-            <select class="config-input" [ngModel]="taskNode.config?.taskType || 'MANUAL'" (ngModelChange)="updateTaskNodeConfig({ taskType: $event })" [disabled]="editingBlocked()">
+            <select class="config-input" [ngModel]="taskNode.config?.taskType || 'MANUAL'"
+              (ngModelChange)="updateTaskNodeConfig({ taskType: $event })" [disabled]="editingBlocked()">
               <option value="MANUAL">Manual</option>
               <option value="OPERATIVE">Operativa</option>
               <option value="ANALYTICAL">Creativa / Analítica</option>
@@ -324,18 +409,28 @@
               <option value="NOTIFICATION">Notificación</option>
             </select>
             <label>Tiempo estimado</label>
-            <input class="config-input" placeholder="Ej: 12 horas" [ngModel]="taskNode.config?.estimatedTime || ''" (ngModelChange)="updateTaskNodeConfig({ estimatedTime: $event })" [readOnly]="editingBlocked()" />
+            <input class="config-input" placeholder="Ej: 12 horas" [ngModel]="taskNode.config?.estimatedTime || ''"
+              (ngModelChange)="updateTaskNodeConfig({ estimatedTime: $event })" [readOnly]="editingBlocked()" />
             <label>Prioridad</label>
-            <select class="config-input" [ngModel]="taskNode.config?.priority || 'NORMAL'" (ngModelChange)="updateTaskNodeConfig({ priority: $event })" [disabled]="editingBlocked()">
+            <select class="config-input" [ngModel]="taskNode.config?.priority || 'NORMAL'"
+              (ngModelChange)="updateTaskNodeConfig({ priority: $event })" [disabled]="editingBlocked()">
               <option value="LOW">Baja</option>
               <option value="NORMAL">Normal</option>
               <option value="HIGH">Alta</option>
               <option value="URGENT">Urgente</option>
             </select>
-            <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.requiresSignature || false" (ngModelChange)="updateTaskNodeConfig({ requiresSignature: $event })" [disabled]="editingBlocked()" /> Solicitar firma touch al cliente</label>
-            <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.allowsDocuments || false" (ngModelChange)="updateTaskNodeConfig({ allowsDocuments: $event })" [disabled]="editingBlocked()" /> Permite adjuntar documentos</label>
-            <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.visibleToClient || false" (ngModelChange)="updateTaskNodeConfig({ visibleToClient: $event })" [disabled]="editingBlocked()" /> Mostrar avance/hito al cliente</label>
-            <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.notifyClient || false" (ngModelChange)="updateTaskNodeConfig({ notifyClient: $event })" [disabled]="editingBlocked()" /> Notificar al cliente cuando cambie el estado</label>
+            <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.requiresSignature || false"
+                (ngModelChange)="updateTaskNodeConfig({ requiresSignature: $event })" [disabled]="editingBlocked()" />
+              Solicitar firma touch al cliente</label>
+            <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.allowsDocuments || false"
+                (ngModelChange)="updateTaskNodeConfig({ allowsDocuments: $event })" [disabled]="editingBlocked()" />
+              Permite adjuntar documentos</label>
+            <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.visibleToClient || false"
+                (ngModelChange)="updateTaskNodeConfig({ visibleToClient: $event })" [disabled]="editingBlocked()" />
+              Mostrar avance/hito al cliente</label>
+            <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.notifyClient || false"
+                (ngModelChange)="updateTaskNodeConfig({ notifyClient: $event })" [disabled]="editingBlocked()" />
+              Notificar al cliente cuando cambie el estado</label>
           </ng-template>
         </aside>
       </section>
@@ -344,86 +439,116 @@
         <div class="config-header">
           <div>
             <h2>{{ configTitle(node.type) }}</h2>
-              <p>Doble click sobre un componente para editar sus reglas.</p>
+            <p>Doble click sobre un componente para editar sus reglas.</p>
           </div>
-          <button class="config-close" (click)="closeNodeConfig()">×</button>
+          <button class="config-close" type="button" (click)="closeNodeConfig()" aria-label="Cerrar configuración"
+            title="Cerrar configuración"><ng-icon name="lucideX"></ng-icon></button>
         </div>
 
         <label>Nombre</label>
         <input class="config-input" [ngModel]="node.label" (ngModelChange)="updateSelectedNode({ label: $event })" />
 
         <label>Descripción</label>
-        <textarea class="config-input" rows="3" [ngModel]="node.config?.description || ''" (ngModelChange)="updateNodeConfig({ description: $event })"></textarea>
+        <textarea class="config-input" rows="3" [ngModel]="node.config?.description || ''"
+          (ngModelChange)="updateNodeConfig({ description: $event })"></textarea>
 
         <ng-container [ngSwitch]="node.type">
           <ng-container *ngSwitchCase="'START'">
             <label>Política asociada</label>
             <input class="config-input" [value]="policyForm.value.name" disabled />
             <label>Mensaje inicial</label>
-            <textarea class="config-input" rows="2" [ngModel]="node.config?.initialMessage || ''" (ngModelChange)="updateNodeConfig({ initialMessage: $event })"></textarea>
+            <textarea class="config-input" rows="2" [ngModel]="node.config?.initialMessage || ''"
+              (ngModelChange)="updateNodeConfig({ initialMessage: $event })"></textarea>
             <label>Estado inicial del trámite</label>
-            <input class="config-input" placeholder="Ej: RECIBIDO" [ngModel]="node.config?.initialStatus || 'RECIBIDO'" (ngModelChange)="updateNodeConfig({ initialStatus: $event })" />
+            <input class="config-input" placeholder="Ej: RECIBIDO" [ngModel]="node.config?.initialStatus || 'RECIBIDO'"
+              (ngModelChange)="updateNodeConfig({ initialStatus: $event })" />
             <label>Condición de inicio</label>
-            <input class="config-input" [ngModel]="node.config?.startCondition || 'Trámite creado por funcionario'" (ngModelChange)="updateNodeConfig({ startCondition: $event })" />
+            <input class="config-input" [ngModel]="node.config?.startCondition || 'Trámite creado por funcionario'"
+              (ngModelChange)="updateNodeConfig({ startCondition: $event })" />
           </ng-container>
 
           <ng-container *ngSwitchCase="'TASK'">
             <label>Departamento responsable</label>
             <input class="config-input" [value]="departmentName(node.departmentId)" disabled />
             <label>Tipo de tarea</label>
-            <select class="config-input" [ngModel]="node.config?.taskType || 'NORMAL'" (ngModelChange)="updateNodeConfig({ taskType: $event })">
+            <select class="config-input" [ngModel]="node.config?.taskType || 'NORMAL'"
+              (ngModelChange)="updateNodeConfig({ taskType: $event })">
               <option value="NORMAL">Normal</option>
               <option value="PARALLEL">Paralela</option>
             </select>
-            <label class="config-check"><input type="checkbox" [ngModel]="node.config?.requiresSignature || false" (ngModelChange)="updateNodeConfig({ requiresSignature: $event })" /> Requiere firma</label>
+            <label class="config-check"><input type="checkbox" [ngModel]="node.config?.requiresSignature || false"
+                (ngModelChange)="updateNodeConfig({ requiresSignature: $event })" /> Requiere firma</label>
             <label>Tiempo estimado</label>
-            <input class="config-input" placeholder="Ej: 48 horas" [ngModel]="node.config?.estimatedTime || ''" (ngModelChange)="updateNodeConfig({ estimatedTime: $event })" />
+            <input class="config-input" placeholder="Ej: 48 horas" [ngModel]="node.config?.estimatedTime || ''"
+              (ngModelChange)="updateNodeConfig({ estimatedTime: $event })" />
             <label>Formulario dinámico simple</label>
-            <textarea class="config-input" rows="3" placeholder="Ej: nombre_cliente, cedula, monto" [ngModel]="node.config?.dynamicForm || ''" (ngModelChange)="updateNodeConfig({ dynamicForm: $event })"></textarea>
+            <textarea class="config-input" rows="3" placeholder="Ej: nombre_cliente, cedula, monto"
+              [ngModel]="node.config?.dynamicForm || ''"
+              (ngModelChange)="updateNodeConfig({ dynamicForm: $event })"></textarea>
             <label>Campos requeridos</label>
-            <textarea class="config-input" rows="2" placeholder="Ej: cedula, firma, documento_identidad" [ngModel]="node.config?.requiredFields || ''" (ngModelChange)="updateNodeConfig({ requiredFields: $event })"></textarea>
+            <textarea class="config-input" rows="2" placeholder="Ej: cedula, firma, documento_identidad"
+              [ngModel]="node.config?.requiredFields || ''"
+              (ngModelChange)="updateNodeConfig({ requiredFields: $event })"></textarea>
           </ng-container>
 
           <ng-container *ngSwitchCase="'GATEWAY'">
             <label>Dato evaluado</label>
-            <input class="config-input" placeholder="Ej: aprobado_legal" [ngModel]="node.config?.evaluatedField || ''" (ngModelChange)="updateNodeConfig({ evaluatedField: $event })" />
+            <input class="config-input" placeholder="Ej: aprobado_legal" [ngModel]="node.config?.evaluatedField || ''"
+              (ngModelChange)="updateNodeConfig({ evaluatedField: $event })" />
             <label>Tipo de condición</label>
-            <select class="config-input" [ngModel]="node.config?.conditionType || 'BOOLEAN'" (ngModelChange)="updateNodeConfig({ conditionType: $event })">
+            <select class="config-input" [ngModel]="node.config?.conditionType || 'BOOLEAN'"
+              (ngModelChange)="updateNodeConfig({ conditionType: $event })">
               <option value="BOOLEAN">Booleano</option>
               <option value="SELECTION">Selección</option>
               <option value="NUMBER">Número</option>
             </select>
             <label>Condición</label>
-            <input class="config-input" placeholder="Ej: monto > 10000" [ngModel]="node.config?.condition || ''" (ngModelChange)="updateNodeConfig({ condition: $event })" />
+            <input class="config-input" placeholder="Ej: monto > 10000" [ngModel]="node.config?.condition || ''"
+              (ngModelChange)="updateNodeConfig({ condition: $event })" />
             <label>Ramas de salida</label>
-            <textarea class="config-input" rows="4" placeholder="Sí → Revisión administrativa&#10;No → Fin rechazado" [ngModel]="node.config?.branches || ''" (ngModelChange)="updateNodeConfig({ branches: $event })"></textarea>
+            <textarea class="config-input" rows="4" placeholder="Sí → Revisión administrativa&#10;No → Fin rechazado"
+              [ngModel]="node.config?.branches || ''"
+              (ngModelChange)="updateNodeConfig({ branches: $event })"></textarea>
             <label>Camino por defecto</label>
-            <input class="config-input" placeholder="Ej: Revisión manual" [ngModel]="node.config?.defaultBranch || ''" (ngModelChange)="updateNodeConfig({ defaultBranch: $event })" />
+            <input class="config-input" placeholder="Ej: Revisión manual" [ngModel]="node.config?.defaultBranch || ''"
+              (ngModelChange)="updateNodeConfig({ defaultBranch: $event })" />
           </ng-container>
 
           <ng-container *ngSwitchCase="'PARALLEL'">
             <label>Ramas simultáneas</label>
-            <textarea class="config-input" rows="4" placeholder="Legal&#10;Financiero" [ngModel]="node.config?.parallelBranches || ''" (ngModelChange)="updateNodeConfig({ parallelBranches: $event })"></textarea>
+            <textarea class="config-input" rows="4" placeholder="Legal&#10;Financiero"
+              [ngModel]="node.config?.parallelBranches || ''"
+              (ngModelChange)="updateNodeConfig({ parallelBranches: $event })"></textarea>
             <label>Modo de ejecución</label>
-            <input class="config-input" [ngModel]="node.config?.executionMode || 'ALL'" (ngModelChange)="updateNodeConfig({ executionMode: 'ALL' })" disabled />
+            <input class="config-input" [ngModel]="node.config?.executionMode || 'ALL'"
+              (ngModelChange)="updateNodeConfig({ executionMode: 'ALL' })" disabled />
           </ng-container>
 
           <ng-container *ngSwitchCase="'JOIN'">
             <label>Regla para continuar</label>
-            <input class="config-input" [ngModel]="node.config?.joinRule || 'Todas las tareas paralelas requeridas completadas'" (ngModelChange)="updateNodeConfig({ joinRule: $event })" />
+            <input class="config-input"
+              [ngModel]="node.config?.joinRule || 'Todas las tareas paralelas requeridas completadas'"
+              (ngModelChange)="updateNodeConfig({ joinRule: $event })" />
           </ng-container>
 
           <ng-container *ngSwitchCase="'END'">
             <label>Estado final del trámite</label>
-            <select class="config-input" [ngModel]="node.config?.finalStatus || 'COMPLETED'" (ngModelChange)="updateNodeConfig({ finalStatus: $event })">
+            <select class="config-input" [ngModel]="node.config?.finalStatus || 'COMPLETED'"
+              (ngModelChange)="updateNodeConfig({ finalStatus: $event })">
               <option value="COMPLETED">Completado</option>
               <option value="REJECTED">Rechazado</option>
               <option value="CANCELLED">Cancelado</option>
             </select>
             <label>Mensaje visible para el cliente</label>
-            <textarea class="config-input" rows="3" [ngModel]="node.config?.customerMessage || ''" (ngModelChange)="updateNodeConfig({ customerMessage: $event })"></textarea>
-            <label class="config-check"><input type="checkbox" [ngModel]="node.config?.generatesClientNotification || false" (ngModelChange)="updateNodeConfig({ generatesClientNotification: $event })" /> Generar notificación</label>
-            <label class="config-check"><input type="checkbox" [ngModel]="node.config?.requiresFinalDocument || false" (ngModelChange)="updateNodeConfig({ requiresFinalDocument: $event })" /> Requiere documento final</label>
+            <textarea class="config-input" rows="3" [ngModel]="node.config?.customerMessage || ''"
+              (ngModelChange)="updateNodeConfig({ customerMessage: $event })"></textarea>
+            <label class="config-check"><input type="checkbox"
+                [ngModel]="node.config?.generatesClientNotification || false"
+                (ngModelChange)="updateNodeConfig({ generatesClientNotification: $event })" /> Generar
+              notificación</label>
+            <label class="config-check"><input type="checkbox" [ngModel]="node.config?.requiresFinalDocument || false"
+                (ngModelChange)="updateNodeConfig({ requiresFinalDocument: $event })" /> Requiere documento
+              final</label>
           </ng-container>
         </ng-container>
       </aside>
@@ -432,38 +557,93 @@
         <div class="config-header">
           <div>
             <h2>Control de versiones</h2>
-          <p>Separá autosave, historial de cambios, versiones internas del diseño y publicación.</p>
+            <p>Separá autosave, historial de cambios, versiones internas del diseño y publicación.</p>
           </div>
-          <button class="config-close" (click)="toggleVersionPanel()">×</button>
+          <button class="config-close" type="button" (click)="toggleVersionPanel()"
+            aria-label="Cerrar panel de versiones" title="Cerrar panel de versiones"><ng-icon
+              name="lucideX"></ng-icon></button>
         </div>
 
         <div class="panel-section version-create" *ngIf="!isReadOnly()">
           <h3>Crear versión interna del diseño</h3>
-          <input class="config-input" [(ngModel)]="newVersionName" placeholder="Nombre interno: revisión legal agregada" [readOnly]="publishedLocked()" />
-          <textarea class="config-input" rows="3" [(ngModel)]="newVersionSummary" placeholder="Resumen del hito o cambio importante" [readOnly]="publishedLocked()"></textarea>
-          <button class="restore-button" [disabled]="publishedLocked()" (click)="createNamedVersion()">Guardar versión</button>
+          <input class="config-input" [(ngModel)]="newVersionName" placeholder="Nombre interno: revisión legal agregada"
+            [readOnly]="publishedLocked()" />
+          <textarea class="config-input" rows="3" [(ngModel)]="newVersionSummary"
+            placeholder="Resumen del hito o cambio importante" [readOnly]="publishedLocked()"></textarea>
+          <button class="restore-button" [disabled]="publishedLocked()" (click)="createNamedVersion()">Guardar
+            versión</button>
         </div>
 
         <div class="panel-section" *ngIf="latestAutosave() as autosave">
           <h3>Último autosave</h3>
           <p class="panel-help">{{ formatBoliviaDate(autosave.savedAt) }} · sesión {{ autosave.sessionId }}</p>
-          <button class="restore-button" *ngIf="canRecoverAutosave() && !isReadOnly()" (click)="restoreAutosaveDraft()">Recuperar autosave</button>
+          <button class="restore-button" *ngIf="canRecoverAutosave() && !isReadOnly()"
+            (click)="restoreAutosaveDraft()">Recuperar autosave</button>
         </div>
 
         <div class="version-item" *ngFor="let version of typedPolicyVersions()">
           <div>
-            <strong>v{{ version.version || policyForm.value.version || '1.0.0' }} · {{ version.name || ('Versión interna ' + version.versionNumber) }}</strong>
+            <strong>v{{ version.version || policyForm.value.version || '1.0.0' }} · {{ version.name || ('Versión interna
+              ' + version.versionNumber) }}</strong>
             <p>{{ formatBoliviaDate(version.createdAt) }} · {{ version.createdBy || 'sistema' }}</p>
             <p>{{ version.changelogSummary || 'Sin resumen' }}</p>
             <p *ngIf="version.published">Publicada {{ formatBoliviaDate(version.publishedAt) }}</p>
           </div>
           <div class="version-actions">
             <button class="restore-button" *ngIf="!isReadOnly()" (click)="restoreVersion(version.id)">Restaurar</button>
-            <button class="restore-button" *ngIf="!version.published && !isReadOnly()" (click)="publishVersion(version.id)">Publicar</button>
+            <button class="restore-button" *ngIf="!version.published && !isReadOnly()"
+              (click)="publishVersion(version.id)">Publicar</button>
             <button class="restore-button" *ngIf="!isReadOnly()" (click)="cloneVersion(version.id)">Clonar</button>
             <button class="restore-button" (click)="compareWithCurrent(version)">Comparar</button>
-            <button class="restore-button" *ngIf="!version.published && !isReadOnly()" (click)="deleteVersion(version.id)">Eliminar</button>
+            <button class="restore-button" *ngIf="!version.published && !isReadOnly()"
+              (click)="deleteVersion(version.id)">Eliminar</button>
           </div>
+        </div>
+
+        <div class="comparison-workspace" *ngIf="performanceComparison() as comparison">
+          <div class="comparison-header">
+            <div>
+              <span class="surface-label">Comparación operativa</span>
+              <h3>{{ comparison.versionName }}</h3>
+              <p>{{ comparison.historySummary }}</p>
+            </div>
+            <div class="comparison-header-actions">
+              <button class="restore-button" type="button" (click)="generateComparisonReport()"
+                [disabled]="comparison.loading || comparisonReportLoading()">
+                {{ comparisonReportLoading() ? 'Generando informe...' : 'Generar informe' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="comparison-grid">
+            <article class="comparison-metric" *ngFor="let row of comparison.rows">
+              <span>{{ row.label }}</span>
+              <strong>{{ row.current }} → {{ row.version }}</strong>
+              <small [class.positive]="row.delta < 0" [class.negative]="row.delta > 0">
+                {{ row.delta === 0 ? 'Sin cambios' : ((row.delta > 0 ? '+' : '') + row.delta) }}
+              </small>
+            </article>
+          </div>
+
+          <div class="comparison-forecast" *ngIf="comparison.prediction as prediction">
+            <span class="forecast-pill">Ruta {{ prediction.route }}</span>
+            <span class="forecast-pill">Riesgo {{ prediction.risk }}</span>
+            <span class="forecast-pill">Prioridad {{ prediction.priority }}</span>
+            <span class="forecast-pill">Confianza {{ prediction.confidence * 100 | number:'1.0-0' }}%</span>
+            <p>{{ prediction.summary }}</p>
+            <p *ngIf="prediction.anomalies.length"><strong>Anomalías:</strong> {{ prediction.anomalies.join(' · ') }}
+            </p>
+          </div>
+
+          <div class="comparison-report" *ngIf="comparison.reportDraft as report">
+            <strong>{{ report.draftTitle }}</strong>
+            <p>{{ report.draftBody }}</p>
+            <p *ngIf="report.clarification">{{ report.clarification }}</p>
+            <p *ngIf="report.missingFields.length"><strong>Campos faltantes:</strong> {{ report.missingFields.join(' ·
+              ') }}</p>
+          </div>
+
+          <p class="panel-help" *ngIf="comparison.loading">Consultando ai-service con historial operativo...</p>
         </div>
 
         <p class="panel-help" *ngIf="typedPolicyVersions().length === 0">Todavía no hay versiones registradas.</p>
@@ -480,8 +660,10 @@
           </div>
           <p class="panel-help" *ngIf="changeLogs().length === 0">Todavía no hay eventos de auditoría.</p>
           <div class="version-actions history-nav" *ngIf="changeLogs().length > 5">
-            <button class="restore-button" [disabled]="changeLogPage() === 0" (click)="prevChangeLogPage()">Anterior</button>
-            <button class="restore-button" [disabled]="(changeLogPage() + 1) * 5 >= changeLogs().length" (click)="nextChangeLogPage()">Siguiente</button>
+            <button class="restore-button" [disabled]="changeLogPage() === 0"
+              (click)="prevChangeLogPage()">Anterior</button>
+            <button class="restore-button" [disabled]="(changeLogPage() + 1) * 5 >= changeLogs().length"
+              (click)="nextChangeLogPage()">Siguiente</button>
           </div>
         </div>
       </aside>
@@ -492,16 +674,15 @@
             <h2>Invitar editores</h2>
             <p>Solo administradores y diseñadores activos pueden editar este borrador invitado.</p>
           </div>
-          <button class="config-close" (click)="toggleInvitePanel()">×</button>
+          <button class="config-close" type="button" (click)="toggleInvitePanel()"
+            aria-label="Cerrar panel de invitaciones" title="Cerrar panel de invitaciones"><ng-icon
+              name="lucideX"></ng-icon></button>
         </div>
 
         <div class="invite-item" *ngFor="let candidate of eligibleEditors()">
           <label class="invite-checkbox">
-            <input
-              type="checkbox"
-              [checked]="isInvited(candidate.username)"
-              (change)="toggleEditor(candidate.username, $any($event.target).checked)"
-            />
+            <input type="checkbox" [checked]="isInvited(candidate.username)"
+              (change)="toggleEditor(candidate.username, $any($event.target).checked)" />
             <span>
               <strong>{{ candidate.username }}</strong>
               <small>{{ candidate.role }}</small>
@@ -516,46 +697,135 @@
         <div class="config-header">
           <div>
             <h2>Asistente IA de pizarra</h2>
-            <p>Pedile que revise, mejore o proponga cambios sobre el flujo actual. Si la pizarra está vacía, también puede armar un borrador.</p>
+            <p>Pedile que revise el flujo o genere mejoras operativas.</p>
           </div>
-          <button class="config-close" (click)="toggleAiPanel()">×</button>
+          <button class="config-close" type="button" (click)="toggleAiPanel()" aria-label="Cerrar asistente IA"
+            title="Cerrar asistente IA"><ng-icon name="lucideX"></ng-icon></button>
         </div>
 
-        <div class="ai-chat">
-          <div class="ai-empty" *ngIf="aiMessages().length === 0">
-            Contame qué querés mejorar: decisiones, formularios, cuellos de botella o un borrador de flujo.
-          </div>
-          <div class="ai-message" *ngFor="let message of aiMessages()" [class.user]="message.role === 'user'" [class.assistant]="message.role === 'assistant'">
-            <strong>{{ message.role === 'user' ? 'Vos' : 'IA' }}</strong>
-            <p>{{ message.content }}</p>
-            <ul *ngIf="message.recommendations?.length">
-              <li *ngFor="let item of message.recommendations">{{ item }}</li>
-            </ul>
-          </div>
-          <div class="ai-message assistant" *ngIf="aiLoading()">
-            <strong>IA</strong>
-            <p>Analizando diseño...</p>
-          </div>
-        </div>
-
-        <div class="ai-composer-shell">
-          <div class="ai-suggestion-card" *ngIf="aiSuggestedRules()">
-            <div>
-              <strong>Propuesta lista</strong>
-              <span>Aplicala sobre la pizarra y luego corré Simular.</span>
+        <ng-container>
+          <section class="ai-result-panel" *ngIf="aiSuggestion() as analysis; else aiResultIdle"
+            [class.loading]="analysis.status === 'loading'" [class.ready]="analysis.status === 'ready'"
+            [class.empty]="analysis.status === 'empty'" [class.error]="analysis.status === 'error'"
+            [class.applied]="analysis.status === 'applied'" [class.discarded]="analysis.status === 'discarded'">
+            <div class="ai-result-header">
+              <div>
+                <span class="surface-label">Lectura estructurada</span>
+                <h3>
+                  {{ analysis.status === 'loading' ? 'Analizando la pizarra' : analysis.status === 'ready' ? 'Propuesta
+                  lista para revisión' : analysis.status === 'applied' ? 'Propuesta aplicada' : analysis.status ===
+                  'discarded' ? 'Propuesta descartada' : analysis.status === 'error' ? 'No se pudo completar el
+                  análisis' : 'Sin cambios aplicables' }}
+                </h3>
+                <p>{{ analysis.summary }}</p>
+              </div>
+              <span class="ai-status-chip">{{ analysis.status === 'loading' ? 'Analizando' : analysis.status === 'ready'
+                ? 'Lista' : analysis.status === 'applied' ? 'Aplicada' : analysis.status === 'discarded' ? 'Descartada'
+                : analysis.status === 'error' ? 'Error' : 'Sin cambios' }}</span>
             </div>
-            <button class="ai-apply-inline" type="button" [disabled]="editingBlocked()" (click)="applyAiSuggestedDiagram()">Aplicar</button>
-          </div>
 
-          <div class="ai-composer" [class.listening]="voiceListening()">
-            <textarea rows="1" [(ngModel)]="aiPrompt" placeholder="Pedile cambios al flujo, validaciones o mejoras..."></textarea>
-            <div class="ai-composer-actions">
-              <button class="composer-icon" type="button" [disabled]="aiLoading()" (click)="toggleVoicePrompt()" [title]="voiceListening() ? 'Detener voz' : 'Dictar por voz'">{{ voiceListening() ? '■' : '🎙' }}</button>
-              <button class="composer-send" type="button" [disabled]="aiLoading() || !aiPrompt.trim()" (click)="askAiAssistant()">↑</button>
+            <div class="ai-result-grid">
+              <article class="ai-result-card">
+                <strong>Solicitud</strong>
+                <p>{{ analysis.prompt }}</p>
+              </article>
+              <article class="ai-result-card">
+                <strong>Respuesta de la IA</strong>
+                <p>{{ analysis.answer }}</p>
+              </article>
+            </div>
+
+            <div class="ai-result-change-summary">
+              <strong>Cambios sugeridos</strong>
+              <div class="ai-result-change-list">
+                <span>{{ analysis.changeSummary.addedDepartments.length ? '+' +
+                  analysis.changeSummary.addedDepartments.length + ' departamento(s)' : 'Sin cambios en departamentos'
+                  }}</span>
+                <span>{{ analysis.changeSummary.addedNodes.length ? '+' + analysis.changeSummary.addedNodes.length + '
+                  nodo(s)' : 'Sin nodos nuevos' }}</span>
+                <span>{{ analysis.changeSummary.updatedNodes.length ? analysis.changeSummary.updatedNodes.length + '
+                  nodo(s) ajustado(s)' : 'Sin ajustes estructurales' }}</span>
+                <span>{{ analysis.changeSummary.addedConnectors || analysis.changeSummary.removedConnectors ?
+                  analysis.changeSummary.addedConnectors + ' conector(es) nuevo(s) · ' +
+                  analysis.changeSummary.removedConnectors + ' eliminado(s)' : 'Sin cambios en conectores' }}</span>
+              </div>
+            </div>
+
+            <div class="ai-result-list" *ngIf="analysis.recommendations.length">
+              <strong>Recomendaciones</strong>
+              <ul>
+                <li *ngFor="let item of analysis.recommendations">{{ item }}</li>
+              </ul>
+            </div>
+
+            <div class="ai-empty-state" *ngIf="analysis.status === 'empty'">
+              La respuesta no incluyó una sugerencia aplicable. Pedile cambios concretos en nodos, carriles o
+              conectores.
+            </div>
+
+            <div class="ai-error-state" *ngIf="analysis.status === 'error'">
+              {{ analysis.errorMessage || 'No se pudo completar el análisis.' }}
+            </div>
+
+            <div class="ai-result-actions" *ngIf="analysis.suggestedRules">
+              <button class="ai-action-button primary" type="button" [disabled]="editingBlocked()"
+                (click)="applyAiSuggestedDiagram()">Aplicar</button>
+              <button class="ai-action-button" type="button" [disabled]="editingBlocked()"
+                (click)="discardAiSuggestion()">Descartar</button>
+            </div>
+          </section>
+
+          <ng-template #aiResultIdle>
+            <section class="ai-result-panel empty">
+              <div class="ai-result-header">
+                <div>
+                  <span class="surface-label">Lectura estructurada</span>
+                  <h3>Esperando una solicitud</h3>
+                  <p>Pedile al asistente que revise el flujo. Acá va a aparecer el análisis, el resumen y el preview de
+                    cambios antes de aplicar.</p>
+                </div>
+                <span class="ai-status-chip">Sin solicitud</span>
+              </div>
+            </section>
+          </ng-template>
+
+          <div class="ai-chat">
+            <div class="ai-empty" *ngIf="aiMessages().length === 0">
+              Contame qué querés mejorar: decisiones, formularios, cuellos de botella o un borrador de flujo.
+            </div>
+            <div class="ai-message" *ngFor="let message of aiMessages()" [class.user]="message.role === 'user'"
+              [class.assistant]="message.role === 'assistant'">
+              <strong>{{ message.role === 'user' ? 'Solicitud' : 'Respuesta operativa' }}</strong>
+              <p>{{ message.content }}</p>
+              <ul *ngIf="message.recommendations?.length">
+                <li *ngFor="let item of message.recommendations">{{ item }}</li>
+              </ul>
+            </div>
+            <div class="ai-message assistant" *ngIf="aiLoading()">
+              <strong>Análisis en curso</strong>
+              <p>Procesando la revisión del flujo...</p>
             </div>
           </div>
-          <p class="ai-listening-hint" *ngIf="voiceListening()">Escuchando. Se envía al detectar silencio.</p>
-        </div>
+
+          <div class="ai-composer-shell">
+            <div class="ai-composer" [class.listening]="voiceListening()">
+              <textarea #assistantComposerTextarea rows="1" [(ngModel)]="aiPrompt"
+                (input)="syncActiveComposerTextarea()" (keydown)="handleComposerKeydown($event)"
+                placeholder="Pedile cambios al flujo, validaciones o mejoras..."></textarea>
+              <div class="ai-composer-actions">
+                <button class="composer-icon" type="button" [disabled]="aiLoading()" (click)="toggleVoicePrompt()"
+                  [title]="voicePromptTitle()">
+                  <ng-icon [name]="voicePromptIcon()"></ng-icon>
+                </button>
+                <button class="composer-send" type="button" [disabled]="aiLoading() || !aiPrompt.trim()"
+                  (click)="submitWorkspacePrompt()">
+                  <ng-icon name="lucideSend"></ng-icon>
+                </button>
+              </div>
+            </div>
+            <p class="ai-listening-hint" *ngIf="voiceListening()">Escuchando. Se envía al detectar silencio.</p>
+          </div>
+        </ng-container>
       </aside>
     </main>
   </div>
@@ -564,27 +834,36 @@
     <div class="simulation-modal">
       <div class="simulation-header">
         <div>
-          <h2>Simulación predictiva del diseño</h2>
-          <p>Analiza todos los nodos y conectores sin ejecutar el flujo recursivamente. Esto evita cuelgues y detecta vacíos antes de publicar.</p>
+          <h2>Verificador dry-run del diseño</h2>
+          <p>Analiza la pizarra sin mutar el estado persistido. El verificador es determinista; la IA queda solo como
+            respaldo opcional.</p>
         </div>
-        <button class="config-close" type="button" (click)="closeSimulationModal()">×</button>
+        <button class="config-close" type="button" (click)="closeSimulationModal()" aria-label="Cerrar simulación"
+          title="Cerrar simulación"><ng-icon name="lucideX"></ng-icon></button>
       </div>
 
       <div class="simulation-progress">
-        <div class="progress-track"><div class="progress-bar" [style.width.%]="simulationProgress()"></div></div>
+        <div class="progress-track">
+          <div class="progress-bar" [style.width.%]="simulationProgress()"></div>
+        </div>
         <strong>{{ simulationProgress() }}%</strong>
       </div>
 
       <div class="simulation-summary" *ngIf="simulationReport() as report">
         <span [class]="'simulation-status ' + report.status">{{ simulationStatusLabel(report.status) }}</span>
+        <span>Fuente: {{ report.source === 'verifier' ? 'Verificador determinista' : report.source === 'ai' ? 'IA de
+          respaldo' : 'Chequeo local' }}</span>
         <span *ngIf="report.durationMs !== undefined">Duración: {{ report.durationMs }} ms</span>
         <span>Rutas/conectores analizados: {{ report.checkedPaths }}</span>
         <span>Cuellos de botella: {{ report.bottlenecks.length }}</span>
       </div>
 
       <div class="simulation-checklist">
-        <article class="simulation-check" *ngFor="let check of simulationChecks()" [class.ok]="check.status === 'ok'" [class.warning]="check.status === 'warning'" [class.error]="check.status === 'error'" [class.running]="check.status === 'running'">
-          <strong>{{ checkIcon(check.status) }} {{ check.label }}</strong>
+        <article class="simulation-check" *ngFor="let check of simulationChecks()" [class.ok]="check.status === 'ok'"
+          [class.warning]="check.status === 'warning'" [class.error]="check.status === 'error'"
+          [class.running]="check.status === 'running'">
+          <strong><ng-icon [name]="checkIcon(check.status)" class="simulation-check-icon"></ng-icon> {{ check.label
+            }}</strong>
           <p>{{ check.detail }}</p>
         </article>
       </div>
@@ -592,7 +871,8 @@
       <div class="simulation-findings" *ngIf="simulationReport() as report">
         <p *ngIf="report.errors.length"><strong>Errores:</strong> {{ report.errors.join(' · ') }}</p>
         <p *ngIf="report.warnings.length"><strong>Advertencias:</strong> {{ report.warnings.join(' · ') }}</p>
-        <p *ngIf="report.bottlenecks.length"><strong>Posibles cuellos de botella:</strong> {{ report.bottlenecks.join(' · ') }}</p>
+        <p *ngIf="report.bottlenecks.length"><strong>Posibles cuellos de botella:</strong> {{ report.bottlenecks.join('
+          · ') }}</p>
       </div>
     </div>
   </section>

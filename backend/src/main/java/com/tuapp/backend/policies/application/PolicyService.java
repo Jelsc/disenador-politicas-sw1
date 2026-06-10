@@ -14,6 +14,7 @@ import com.tuapp.backend.policies.infrastructure.PolicyVersionDocument;
 import com.tuapp.backend.policies.infrastructure.PolicyVersionMongoRepository;
 import com.tuapp.backend.policies.presentation.dto.PolicyAutosaveRequest;
 import com.tuapp.backend.policies.presentation.dto.PolicyChangeLogRequest;
+import com.tuapp.backend.policies.presentation.dto.PolicyDryRunRequest;
 import com.tuapp.backend.policies.presentation.dto.PolicyRequest;
 import com.tuapp.backend.policies.presentation.dto.PolicyVersionRequest;
 import com.tuapp.backend.users.domain.Role;
@@ -78,6 +79,251 @@ public class PolicyService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Published policy not found");
         }
         return policy;
+    }
+
+    public PolicyDryRunReportResponse verifyDryRun(PolicyDryRunRequest request) {
+        long startedAt = System.nanoTime();
+        String policyName = defaultText(request.getPolicyName(), "Política en diseño");
+        List<String> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        List<String> bottlenecks = new ArrayList<>();
+        List<PolicyDryRunCheckResponse> checks = new ArrayList<>();
+        int checkedPaths = 0;
+
+        try {
+            JsonNode root = objectMapper.readTree(defaultText(request.getRules(), "{}"));
+            JsonNode nodesNode = root.path("nodes");
+            JsonNode connectorsNode = root.path("connectors");
+
+            List<JsonNode> nodes = new ArrayList<>();
+            List<JsonNode> connectors = new ArrayList<>();
+            Map<String, JsonNode> nodeById = new HashMap<>();
+            Map<String, Integer> incoming = new HashMap<>();
+            Map<String, Integer> outgoing = new HashMap<>();
+            Set<String> decisionFieldIds = new HashSet<>();
+            int startCount = 0;
+            int endCount = 0;
+
+            List<String> structureErrors = new ArrayList<>();
+            List<String> structureWarnings = new ArrayList<>();
+
+            if (!nodesNode.isArray()) {
+                structureErrors.add("The snapshot must include a nodes array.");
+            } else {
+                for (JsonNode node : nodesNode) {
+                    nodes.add(node);
+                    String id = node.path("id").asText();
+                    String type = node.path("type").asText();
+                    if (!id.isBlank()) {
+                        nodeById.put(id, node);
+                        incoming.put(id, 0);
+                        outgoing.put(id, 0);
+                    }
+                    if ("START".equalsIgnoreCase(type)) startCount++;
+                    if ("END".equalsIgnoreCase(type)) endCount++;
+                }
+            }
+
+            if (!connectorsNode.isArray()) {
+                structureErrors.add("The snapshot must include a connectors array.");
+            } else {
+                for (JsonNode connector : connectorsNode) {
+                    connectors.add(connector);
+                    String sourceId = connector.path("sourceId").asText();
+                    String targetId = connector.path("targetId").asText();
+                    if (!nodeById.containsKey(sourceId) || !nodeById.containsKey(targetId)) {
+                        structureErrors.add("The snapshot contains invalid connections.");
+                        continue;
+                    }
+                    outgoing.computeIfPresent(sourceId, (key, value) -> value + 1);
+                    incoming.computeIfPresent(targetId, (key, value) -> value + 1);
+                }
+                checkedPaths = connectors.size();
+            }
+
+            if (startCount != 1) structureErrors.add("A policy must have exactly one Start node to dry-run.");
+            if (endCount < 1) structureErrors.add("A policy must have at least one End node to dry-run.");
+            if (connectors.isEmpty()) structureErrors.add("A policy must have valid connections before dry-run.");
+
+            checks.add(buildCheck("Structure", structureErrors, structureWarnings, "Snapshot parsed successfully."));
+            addAllUnique(errors, structureErrors);
+            addAllUnique(warnings, structureWarnings);
+
+            List<String> taskErrors = new ArrayList<>();
+            List<String> taskWarnings = new ArrayList<>();
+            List<String> taskBottlenecks = new ArrayList<>();
+            List<JsonNode> tasks = nodes.stream().filter(node -> "TASK".equalsIgnoreCase(node.path("type").asText())).toList();
+            List<String> invalidTasks = tasks.stream()
+                    .filter(task -> task.path("departmentId").asText().isBlank()
+                            || task.path("config").path("taskType").asText().isBlank()
+                            || task.path("config").path("estimatedTime").asText().isBlank()
+                            || !task.path("config").path("form").path("fields").isArray()
+                            || task.path("config").path("form").path("fields").size() == 0)
+                    .map(task -> task.path("label").asText(task.path("id").asText("TASK")))
+                    .toList();
+            if (!invalidTasks.isEmpty()) {
+                taskErrors.add("Tasks without minimum configuration: " + String.join(", ", invalidTasks) + ".");
+            }
+
+            List<String> signatureWithoutField = tasks.stream()
+                    .filter(task -> task.path("config").path("requiresSignature").asBoolean(false)
+                            && task.path("config").path("form").path("fields").isArray()
+                            && !hasFieldType(task.path("config").path("form").path("fields"), "SIGNATURE"))
+                    .map(task -> task.path("label").asText(task.path("id").asText("TASK")))
+                    .toList();
+            if (!signatureWithoutField.isEmpty()) {
+                taskErrors.add("Tasks with signature requirement but no signature field: " + String.join(", ", signatureWithoutField) + ".");
+            }
+
+            List<String> fileFieldsWithoutRules = tasks.stream()
+                    .filter(task -> task.path("config").path("form").path("fields").isArray())
+                    .filter(task -> hasFieldType(task.path("config").path("form").path("fields"), "FILE")
+                            && hasFileFieldWithoutRules(task.path("config").path("form").path("fields")))
+                    .map(task -> task.path("label").asText(task.path("id").asText("TASK")))
+                    .toList();
+            if (!fileFieldsWithoutRules.isEmpty()) {
+                taskWarnings.add("File fields without formats or max size: " + String.join(", ", fileFieldsWithoutRules) + ".");
+            }
+
+            List<String> signaturesWithoutMessage = tasks.stream()
+                    .filter(task -> task.path("config").path("form").path("fields").isArray())
+                    .filter(task -> hasSignatureFieldWithoutMessage(task.path("config").path("form").path("fields")))
+                    .map(task -> task.path("label").asText(task.path("id").asText("TASK")))
+                    .toList();
+            if (!signaturesWithoutMessage.isEmpty()) {
+                taskWarnings.add("Signature fields without client guidance: " + String.join(", ", signaturesWithoutMessage) + ".");
+            }
+
+            List<String> manyFields = tasks.stream()
+                    .filter(task -> task.path("config").path("form").path("fields").isArray() && task.path("config").path("form").path("fields").size() > 10)
+                    .map(task -> task.path("label").asText(task.path("id").asText("TASK")))
+                    .toList();
+            if (!manyFields.isEmpty()) {
+                taskWarnings.add("Heavy forms: " + String.join(", ", manyFields) + ".");
+                taskBottlenecks.addAll(manyFields);
+            }
+
+            checks.add(buildCheck("Task configuration", taskErrors, taskWarnings, "Tasks reviewed: " + tasks.size()));
+            addAllUnique(errors, taskErrors);
+            addAllUnique(warnings, taskWarnings);
+            addAllUnique(bottlenecks, taskBottlenecks);
+
+            List<String> decisionErrors = new ArrayList<>();
+            List<String> decisionWarnings = new ArrayList<>();
+            List<JsonNode> gateways = nodes.stream().filter(node -> "GATEWAY".equalsIgnoreCase(node.path("type").asText())).toList();
+            for (JsonNode task : tasks) {
+                JsonNode fields = task.path("config").path("form").path("fields");
+                if (fields.isArray()) {
+                    for (JsonNode field : fields) {
+                        if (field.path("usedForDecision").asBoolean(false) && !field.path("id").asText().isBlank()) {
+                            decisionFieldIds.add(field.path("id").asText());
+                        }
+                    }
+                }
+            }
+
+            List<String> invalidGateways = gateways.stream()
+                    .filter(gateway -> outgoing.getOrDefault(gateway.path("id").asText(), 0) < 2
+                            || gateway.path("config").path("evaluatedField").asText().isBlank()
+                            || gateway.path("config").path("branches").asText().isBlank()
+                            || gateway.path("config").path("defaultBranch").asText().isBlank())
+                    .map(gateway -> gateway.path("label").asText(gateway.path("id").asText("GATEWAY")))
+                    .toList();
+            if (!invalidGateways.isEmpty()) {
+                decisionErrors.add("Incomplete decisions: " + String.join(", ", invalidGateways) + ".");
+            }
+
+            List<String> missingDecisionFields = gateways.stream()
+                    .filter(gateway -> !gateway.path("config").path("evaluatedField").asText().isBlank() && !decisionFieldIds.contains(gateway.path("config").path("evaluatedField").asText()))
+                    .map(gateway -> gateway.path("label").asText(gateway.path("id").asText("GATEWAY")))
+                    .toList();
+            if (!missingDecisionFields.isEmpty()) {
+                decisionErrors.add("Decisions pointing to non-decision fields: " + String.join(", ", missingDecisionFields) + ".");
+            }
+
+            checks.add(buildCheck("Decision routing", decisionErrors, decisionWarnings, "Decisions reviewed: " + gateways.size()));
+            addAllUnique(errors, decisionErrors);
+            addAllUnique(warnings, decisionWarnings);
+
+            List<String> parallelErrors = new ArrayList<>();
+            List<String> parallelWarnings = new ArrayList<>();
+            List<JsonNode> parallels = nodes.stream().filter(node -> "PARALLEL".equalsIgnoreCase(node.path("type").asText())).toList();
+            List<JsonNode> joins = nodes.stream().filter(node -> "JOIN".equalsIgnoreCase(node.path("type").asText())).toList();
+            List<String> invalidParallels = parallels.stream()
+                    .filter(node -> incoming.getOrDefault(node.path("id").asText(), 0) < 1 || outgoing.getOrDefault(node.path("id").asText(), 0) < 2)
+                    .map(node -> node.path("label").asText(node.path("id").asText("PARALLEL")))
+                    .toList();
+            if (!invalidParallels.isEmpty()) {
+                parallelErrors.add("Incomplete parallel forks: " + String.join(", ", invalidParallels) + ".");
+            }
+            List<String> invalidJoins = joins.stream()
+                    .filter(node -> incoming.getOrDefault(node.path("id").asText(), 0) < 2 || outgoing.getOrDefault(node.path("id").asText(), 0) < 1)
+                    .map(node -> node.path("label").asText(node.path("id").asText("JOIN")))
+                    .toList();
+            if (!invalidJoins.isEmpty()) {
+                parallelErrors.add("Incomplete joins: " + String.join(", ", invalidJoins) + ".");
+            }
+            if (parallels.size() > joins.size()) {
+                parallelWarnings.add("There are more forks than joins; review branch convergence.");
+            }
+
+            checks.add(buildCheck("Parallel flow", parallelErrors, parallelWarnings, "Forks: " + parallels.size() + ", joins: " + joins.size()));
+            addAllUnique(errors, parallelErrors);
+            addAllUnique(warnings, parallelWarnings);
+
+            List<String> bottleneckWarnings = new ArrayList<>();
+            List<String> bottleneckMatches = tasks.stream()
+                    .filter(task -> (task.path("config").path("form").path("fields").isArray() && task.path("config").path("form").path("fields").size() > 10)
+                            || task.path("config").path("requiresSignature").asBoolean(false)
+                            || task.path("config").path("notifyClient").asBoolean(false))
+                    .map(task -> task.path("label").asText(task.path("id").asText("TASK")))
+                    .toList();
+            if (!bottleneckMatches.isEmpty()) {
+                bottleneckWarnings.add("Potential bottlenecks: " + String.join(", ", bottleneckMatches) + ".");
+            }
+            checks.add(buildCheck("Bottleneck risk", List.of(), bottleneckWarnings, bottleneckMatches.isEmpty() ? "No bottleneck risk detected." : "Bottleneck risk flagged."));
+            addAllUnique(warnings, bottleneckWarnings);
+            addAllUnique(bottlenecks, bottleneckMatches);
+
+            List<String> publishErrors = new ArrayList<>();
+            try {
+                validatePublishable(request.getRules());
+            } catch (ResponseStatusException ex) {
+                publishErrors.add(ex.getReason() != null ? ex.getReason() : "Policy diagram is invalid and cannot be published");
+            }
+            checks.add(buildCheck("Publish readiness", publishErrors, List.of(), publishErrors.isEmpty() ? "The snapshot satisfies publish rules." : publishErrors.get(0)));
+            addAllUnique(errors, publishErrors);
+
+        } catch (ResponseStatusException ex) {
+            errors.add(ex.getReason() != null ? ex.getReason() : "Policy snapshot is invalid and cannot be verified");
+            checks.add(PolicyDryRunCheckResponse.builder()
+                    .label("Snapshot parser")
+                    .status("error")
+                    .detail(errors.get(0))
+                    .build());
+        } catch (Exception ex) {
+            errors.add("Policy snapshot is invalid and cannot be verified");
+            checks.add(PolicyDryRunCheckResponse.builder()
+                    .label("Snapshot parser")
+                    .status("error")
+                    .detail("Policy snapshot is invalid and cannot be verified")
+                    .build());
+        }
+
+        String status = !errors.isEmpty() ? "error" : !warnings.isEmpty() ? "warning" : "ok";
+        long durationMs = Math.max(0, (System.nanoTime() - startedAt) / 1_000_000L);
+
+        return PolicyDryRunReportResponse.builder()
+                .policyName(policyName)
+                .status(status)
+                .durationMs(durationMs)
+                .checkedPaths(checkedPaths)
+                .errors(distinct(errors))
+                .warnings(distinct(warnings))
+                .bottlenecks(distinct(bottlenecks))
+                .checks(checks)
+                .recommendations(buildRecommendations(errors, warnings, bottlenecks))
+                .build();
     }
 
     public Policy getPolicyById(String id, String username, boolean admin) {
@@ -475,6 +721,76 @@ public class PolicyService {
                 .afterValue(afterValue)
                 .createdAt(LocalDateTime.now())
                 .build());
+    }
+
+    private PolicyDryRunCheckResponse buildCheck(String label, List<String> stageErrors, List<String> stageWarnings, String fallbackDetail) {
+        String detail = !stageErrors.isEmpty() ? stageErrors.get(0) : !stageWarnings.isEmpty() ? stageWarnings.get(0) : fallbackDetail;
+        String status = !stageErrors.isEmpty() ? "error" : !stageWarnings.isEmpty() ? "warning" : "ok";
+        return PolicyDryRunCheckResponse.builder()
+                .label(label)
+                .status(status)
+                .detail(detail)
+                .build();
+    }
+
+    private void addAllUnique(List<String> target, List<String> source) {
+        for (String value : source) {
+            if (value != null && !value.isBlank() && !target.contains(value)) {
+                target.add(value);
+            }
+        }
+    }
+
+    private boolean hasFieldType(JsonNode fields, String expectedType) {
+        if (fields == null || !fields.isArray()) return false;
+        for (JsonNode field : fields) {
+            if (expectedType.equalsIgnoreCase(field.path("type").asText())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasFileFieldWithoutRules(JsonNode fields) {
+        if (fields == null || !fields.isArray()) return false;
+        for (JsonNode field : fields) {
+            if (!"FILE".equalsIgnoreCase(field.path("type").asText())) continue;
+            boolean missingAllowedFormats = !field.path("allowedFormats").isArray() || field.path("allowedFormats").size() == 0;
+            boolean missingSize = !field.hasNonNull("maxFileSizeMb");
+            if (missingAllowedFormats || missingSize) return true;
+        }
+        return false;
+    }
+
+    private boolean hasSignatureFieldWithoutMessage(JsonNode fields) {
+        if (fields == null || !fields.isArray()) return false;
+        for (JsonNode field : fields) {
+            if ("SIGNATURE".equalsIgnoreCase(field.path("type").asText()) && field.path("signatureMessage").asText().isBlank()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<String> distinct(List<String> values) {
+        return new ArrayList<>(new java.util.LinkedHashSet<>(values));
+    }
+
+    private List<String> buildRecommendations(List<String> errors, List<String> warnings, List<String> bottlenecks) {
+        List<String> recommendations = new ArrayList<>();
+        if (!bottlenecks.isEmpty()) {
+            recommendations.add("Split or simplify the bottleneck tasks before publishing.");
+        }
+        if (!warnings.isEmpty()) {
+            recommendations.add("Review the listed warnings to keep the flow predictable.");
+        }
+        if (!errors.isEmpty()) {
+            recommendations.add("Fix the structural errors before attempting to publish.");
+        }
+        if (recommendations.isEmpty()) {
+            recommendations.add("The dry-run passed without blocking findings.");
+        }
+        return recommendations;
     }
 
     private void validatePublishable(String rulesJson) {

@@ -1,9 +1,9 @@
-import { ChangeDetectorRef, Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
+import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild, effect, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
-import { PolicyService } from '../../services/policy.service';
-import { PolicyAiService } from '../../services/policy-ai.service';
+import { PolicyService, PolicyDryRunReport } from '../../services/policy.service';
+import { PolicyAiService, AiAnalystInsightsResponse, AiPerformanceSnapshot, AiPolicyComparisonContext, AiReportDraftResponse } from '../../services/policy-ai.service';
 import { PolicyBoardCollaborationService } from '../../services/policy-board-collaboration.service';
 import { AdminDepartmentsService } from '../../../admin/services/admin-departments.service';
 import { Department } from '../../../admin/models/admin.models';
@@ -14,6 +14,8 @@ import { UiNotificationService } from '../../../core/services/ui-notification.se
 import { OperationService } from '../../../execution/services/operation.service';
 import {
   AiChatMessage,
+  AiBoardSuggestionChangeSummary,
+  AiBoardSuggestionState,
   BoardConnector,
   BoardNode,
   BoardNodeType,
@@ -31,13 +33,44 @@ import {
   UmlNodePaletteItem
 } from './policy-form.models';
 
+interface PolicyPerformanceMetricRow {
+  label: string;
+  current: number;
+  version: number;
+  delta: number;
+}
+
+interface PolicyPerformanceHistorySummary {
+  count: number;
+  completed: number;
+  avgDurationHours: number;
+  avgQueueSize: number;
+  avgReworkCount: number;
+  avgWaitingSignatureHours: number;
+}
+
+interface PolicyPerformanceComparisonView {
+  versionId: string;
+  versionName: string;
+  requestText: string;
+  current: AiPerformanceSnapshot;
+  version: AiPerformanceSnapshot;
+  deltas: AiPerformanceSnapshot;
+  history: PolicyPerformanceHistorySummary;
+  historySummary: string;
+  loading: boolean;
+  prediction: AiAnalystInsightsResponse | null;
+  reportDraft: AiReportDraftResponse | null;
+  rows: PolicyPerformanceMetricRow[];
+}
+
 @Component({
   selector: 'app-policy-form',
   standalone: true,
   imports: [CommonModule, FormsModule, ReactiveFormsModule, RouterModule, NgIconComponent],
   templateUrl: './policy-form.component.html',
 })
-export class PolicyFormComponent implements OnInit, OnDestroy {
+export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
   readonly laneHeight = 140;
   readonly taskFormFieldTypes: Array<{ type: TaskFormFieldType; label: string; help: string }> = [
     { type: 'SHORT_TEXT', label: 'Texto corto', help: 'Nombre, CI, código, teléfono' },
@@ -118,6 +151,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   changeLogs = signal<PolicyChangeLog[]>([]);
   autosavePending = signal(false);
   versionComparison = signal('');
+  performanceComparison = signal<PolicyPerformanceComparisonView | null>(null);
   changeLogPage = signal(0);
   simulationOpen = signal(false);
   simulationProgress = signal(0);
@@ -127,13 +161,21 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   aiLoading = signal(false);
   aiMessages = signal<AiChatMessage[]>([]);
   aiPrompt = '';
+  aiSuggestion = signal<AiBoardSuggestionState | null>(null);
   aiSuggestedRules = signal<PolicyBoardRules | null>(null);
+  comparisonReportLoading = signal(false);
   voiceListening = signal(false);
+  reportDraft = signal<AiReportDraftResponse | null>(null);
+  reportLoading = signal(false);
+  reportDraftError = signal('');
   currentUsername = signal<string | null>(null);
   currentRole = signal<string | null>(null);
   policyOwner = signal<string | null>(null);
   currentPublishedVersionId = signal<string | null>(null);
   publishedLocked = signal(false);
+
+  @ViewChild('assistantComposerTextarea') private assistantComposerTextarea?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('reportComposerTextarea') private reportComposerTextarea?: ElementRef<HTMLTextAreaElement>;
 
   newVersionName = '';
   newVersionSummary = '';
@@ -157,6 +199,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   private voiceSilenceTimer?: ReturnType<typeof setTimeout>;
   private voiceBasePrompt = '';
   private voiceTranscript = '';
+  private voiceTargetWorkspace: 'assistant' | 'report' = 'assistant';
   private applyingRemoteChange = false;
   private readonly sessionId = crypto.randomUUID();
 
@@ -189,6 +232,10 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
         this.loadChangeLogs(id);
       }
     });
+  }
+
+  ngAfterViewInit(): void {
+    this.syncActiveComposerTextarea();
   }
 
   ngOnDestroy(): void {
@@ -731,6 +778,175 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     }
   }
 
+  private normalizeSuggestedRules(rules: PolicyBoardRules): PolicyBoardRules {
+    return {
+      version: 1,
+      departments: rules.departments || [],
+      laneHeights: rules.laneHeights || {},
+      nodes: (rules.nodes || []).map(node => ({ ...node, config: this.normalizeNodeConfig(node) })),
+      connectors: rules.connectors || []
+    };
+  }
+
+  private emptyAiChangeSummary(): AiBoardSuggestionChangeSummary {
+    return {
+      addedDepartments: [],
+      removedDepartments: [],
+      addedNodes: [],
+      removedNodes: [],
+      updatedNodes: [],
+      addedConnectors: 0,
+      removedConnectors: 0
+    };
+  }
+
+  private validateRulesSnapshot(rules: PolicyBoardRules): string {
+    const nodes = rules.nodes || [];
+    const connectors = rules.connectors || [];
+    const departments = rules.departments || [];
+    const startCount = nodes.filter(node => node.type === 'START').length;
+    const endCount = nodes.filter(node => node.type === 'END').length;
+    const tasks = nodes.filter(node => node.type === 'TASK');
+    const gateways = nodes.filter(node => node.type === 'GATEWAY');
+    const parallels = nodes.filter(node => node.type === 'PARALLEL');
+    const joins = nodes.filter(node => node.type === 'JOIN');
+    const validNodeIds = new Set(nodes.map(node => node.id));
+    const validDepartmentIds = new Set(departments.map(department => department.id));
+    const uniqueNodeIds = new Set(nodes.map(node => node.id));
+    const uniqueConnectorIds = new Set(connectors.map(connector => connector.id));
+    const decisionFieldIds = new Set(tasks.flatMap(task => (task.config?.form?.fields || []).filter(field => field.usedForDecision).map(field => field.id)));
+    const incoming = new Map(nodes.map(node => [node.id, 0]));
+    const outgoing = new Map(nodes.map(node => [node.id, 0]));
+
+    if (nodes.some(node => !node.id)) return 'La pizarra contiene nodos sin identificador.';
+    if (connectors.some(connector => !connector.id)) return 'La pizarra contiene conectores sin identificador.';
+    if (uniqueNodeIds.size !== nodes.length) return 'La pizarra contiene nodos duplicados.';
+    if (uniqueConnectorIds.size !== connectors.length) return 'La pizarra contiene conectores duplicados.';
+
+    for (const connector of connectors) {
+      if (!validNodeIds.has(connector.sourceId) || !validNodeIds.has(connector.targetId)) {
+        return 'Toda conexión debe unir nodos existentes.';
+      }
+      outgoing.set(connector.sourceId, (outgoing.get(connector.sourceId) || 0) + 1);
+      incoming.set(connector.targetId, (incoming.get(connector.targetId) || 0) + 1);
+    }
+
+    if (startCount !== 1) return 'Toda política debe tener exactamente un nodo Inicio.';
+    if (endCount < 1) return 'Toda política debe tener al menos un nodo Fin.';
+    if (connectors.length === 0) return 'Toda política debe tener conexiones válidas antes de aplicarse.';
+
+    const invalidStart = nodes.find(node => node.type === 'START' && ((incoming.get(node.id) || 0) > 0 || (outgoing.get(node.id) || 0) < 1));
+    if (invalidStart) return 'El nodo Inicio no puede tener entradas y debe tener al menos una salida.';
+
+    const invalidEnd = nodes.find(node => node.type === 'END' && (outgoing.get(node.id) || 0) > 0);
+    if (invalidEnd) return `El nodo Fin "${invalidEnd.label}" no puede tener salidas.`;
+
+    const invalidTaskDepartment = tasks.find(task => !task.departmentId || !validDepartmentIds.has(task.departmentId));
+    if (invalidTaskDepartment) return `La tarea "${invalidTaskDepartment.label}" debe pertenecer a un departamento existente.`;
+
+    const unconfiguredTask = tasks.find(task => !task.config?.taskType || !task.config?.estimatedTime || !task.config?.form || (task.config.form.fields || []).length === 0);
+    if (unconfiguredTask) return `La tarea "${unconfiguredTask.label}" necesita configuración mínima y al menos un campo de formulario.`;
+
+    const invalidFieldTask = tasks.find(task => (task.config?.form?.fields || []).some(field => !field.label || field.order < 1 || (this.supportsOptions(field.type) && (!field.options || field.options.length === 0))));
+    if (invalidFieldTask) return `La tarea "${invalidFieldTask.label}" tiene campos de formulario incompletos.`;
+
+    const signatureTask = tasks.find(task => task.config?.requiresSignature && !(task.config?.form?.fields || []).some(field => field.type === 'SIGNATURE'));
+    if (signatureTask) return `La tarea "${signatureTask.label}" requiere firma pero no tiene campo Firma configurado.`;
+
+    const invalidGateway = gateways.find(gateway => (outgoing.get(gateway.id) || 0) < 2 || !gateway.config?.evaluatedField || !gateway.config?.branches || !gateway.config?.defaultBranch);
+    if (invalidGateway) return `La decisión "${invalidGateway.label}" necesita dato evaluado, condiciones, camino por defecto y al menos dos salidas.`;
+
+    const unknownGatewayField = gateways.find(gateway => gateway.config?.evaluatedField && !decisionFieldIds.has(gateway.config.evaluatedField));
+    if (unknownGatewayField) return `La decisión "${unknownGatewayField.label}" referencia un campo evaluado que no existe como salida usable de una tarea.`;
+
+    const invalidParallel = parallels.find(node => (incoming.get(node.id) || 0) < 1 || (outgoing.get(node.id) || 0) < 2);
+    if (invalidParallel) return `El paralelo "${invalidParallel.label}" necesita una entrada y dos o más salidas.`;
+
+    const invalidJoin = joins.find(node => (incoming.get(node.id) || 0) < 2 || (outgoing.get(node.id) || 0) < 1);
+    if (invalidJoin) return `La unión "${invalidJoin.label}" necesita dos o más entradas y al menos una salida.`;
+
+    return '';
+  }
+
+  private buildAiSuggestionState(
+    prompt: string,
+    answer: string,
+    recommendations: string[],
+    currentRules: PolicyBoardRules,
+    suggestedRules: PolicyBoardRules | null
+  ): AiBoardSuggestionState {
+    const cleanAnswer = (answer || '').trim();
+    const cleanRecommendations = (recommendations || []).filter(Boolean);
+    if (!suggestedRules) {
+      return {
+        status: cleanAnswer ? 'empty' : 'empty',
+        prompt,
+        answer: cleanAnswer || 'La IA no devolvió una propuesta aplicable.',
+        recommendations: cleanRecommendations,
+        summary: cleanAnswer || 'No hay cambios sugeridos para aplicar sobre la pizarra.',
+        changeSummary: this.emptyAiChangeSummary(),
+        suggestedRules: null
+      };
+    }
+
+    const changeSummary = this.buildAiChangeSummary(currentRules, suggestedRules);
+    const changeLines = [
+      changeSummary.addedDepartments.length ? `+${changeSummary.addedDepartments.length} departamento(s)` : 'Sin cambios en departamentos',
+      changeSummary.addedNodes.length ? `+${changeSummary.addedNodes.length} nodo(s)` : 'Sin nodos nuevos',
+      changeSummary.updatedNodes.length ? `${changeSummary.updatedNodes.length} nodo(s) ajustado(s)` : 'Sin ajustes estructurales',
+      changeSummary.addedConnectors || changeSummary.removedConnectors ? `${changeSummary.addedConnectors} conector(es) nuevo(s) · ${changeSummary.removedConnectors} eliminado(s)` : 'Sin cambios en conectores'
+    ];
+
+    return {
+      status: 'ready',
+      prompt,
+      answer: cleanAnswer || 'La IA devolvió una propuesta estructurada.',
+      recommendations: cleanRecommendations,
+      summary: cleanAnswer || 'Propuesta lista para revisar y aplicar.',
+      changeSummary,
+      suggestedRules,
+      errorMessage: undefined
+    };
+  }
+
+  private buildAiChangeSummary(currentRules: PolicyBoardRules, suggestedRules: PolicyBoardRules): {
+    addedDepartments: string[];
+    removedDepartments: string[];
+    addedNodes: string[];
+    removedNodes: string[];
+    updatedNodes: string[];
+    addedConnectors: number;
+    removedConnectors: number;
+  } {
+    const currentDepartments = new Map((currentRules.departments || []).map(department => [department.id, department]));
+    const suggestedDepartments = new Map((suggestedRules.departments || []).map(department => [department.id, department]));
+    const currentNodes = new Map((currentRules.nodes || []).map(node => [node.id, node]));
+    const suggestedNodes = new Map((suggestedRules.nodes || []).map(node => [node.id, node]));
+    const currentConnectors = new Map((currentRules.connectors || []).map(connector => [connector.id, connector]));
+    const suggestedConnectors = new Map((suggestedRules.connectors || []).map(connector => [connector.id, connector]));
+
+    return {
+      addedDepartments: [...suggestedDepartments.values()].filter(department => !currentDepartments.has(department.id)).map(department => department.name),
+      removedDepartments: [...currentDepartments.values()].filter(department => !suggestedDepartments.has(department.id)).map(department => department.name),
+      addedNodes: [...suggestedNodes.values()].filter(node => !currentNodes.has(node.id)).map(node => node.label),
+      removedNodes: [...currentNodes.values()].filter(node => !suggestedNodes.has(node.id)).map(node => node.label),
+      updatedNodes: [...suggestedNodes.values()]
+        .filter(node => {
+          const existing = currentNodes.get(node.id);
+          if (!existing) return false;
+          return existing.label !== node.label ||
+            existing.type !== node.type ||
+            existing.departmentId !== node.departmentId ||
+            existing.x !== node.x ||
+            existing.y !== node.y ||
+            JSON.stringify(existing.config || {}) !== JSON.stringify(node.config || {});
+        })
+        .map(node => node.label),
+      addedConnectors: [...suggestedConnectors.values()].filter(connector => !currentConnectors.has(connector.id)).length,
+      removedConnectors: [...currentConnectors.values()].filter(connector => !suggestedConnectors.has(connector.id)).length
+    };
+  }
+
   configTitle(type: BoardNodeType): string {
     if (type === 'START') return 'Configuración de inicio';
     if (type === 'TASK') return 'Configuración de actividad';
@@ -841,7 +1057,42 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
       this.versionPanelOpen.set(false);
       this.invitePanelOpen.set(false);
       this.selectedNode.set(null);
+      this.cdr.detectChanges();
+      this.syncActiveComposerTextarea();
     }
+  }
+
+  submitWorkspacePrompt(): void {
+    if (this.aiLoading()) return;
+    this.askAiAssistant();
+  }
+
+  handleComposerKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    this.submitWorkspacePrompt();
+  }
+
+  resizeComposerTextarea(textarea: HTMLTextAreaElement | null | undefined): void {
+    if (!textarea) return;
+    const computed = window.getComputedStyle(textarea);
+    const lineHeight = Number.parseFloat(computed.lineHeight) || Number.parseFloat(computed.fontSize) * 1.45 || 20;
+    const paddingY = Number.parseFloat(computed.paddingTop) + Number.parseFloat(computed.paddingBottom);
+    const borderY = Number.parseFloat(computed.borderTopWidth) + Number.parseFloat(computed.borderBottomWidth);
+    const maxHeight = Math.round(lineHeight * 5 + paddingY + borderY);
+    textarea.style.height = 'auto';
+    textarea.style.overflowY = 'hidden';
+    textarea.style.overflowX = 'hidden';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }
+
+  syncActiveComposerTextarea(): void {
+    this.resizeComposerTextarea(this.activeComposerTextarea());
+  }
+
+  private activeComposerTextarea(): HTMLTextAreaElement | null {
+    return this.assistantComposerTextarea?.nativeElement ?? null;
   }
 
   askAiAssistant(): void {
@@ -850,31 +1101,86 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     this.syncRules();
     this.aiLoading.set(true);
     this.aiSuggestedRules.set(null);
+    this.aiSuggestion.set({
+      status: 'loading',
+      prompt,
+      answer: '',
+      recommendations: [],
+      summary: 'Analizando el tablero y preparando una propuesta.',
+      changeSummary: {
+        addedDepartments: [],
+        removedDepartments: [],
+        addedNodes: [],
+        removedNodes: [],
+        updatedNodes: [],
+        addedConnectors: 0,
+        removedConnectors: 0
+      },
+      suggestedRules: null
+    });
     const history = this.aiMessages().map(({ role, content }) => ({ role, content }));
+    const currentRules = this.currentRulesObject();
     this.aiMessages.update(messages => [...messages, { role: 'user', content: prompt }]);
     this.aiPrompt = '';
+    this.cdr.detectChanges();
+    this.syncActiveComposerTextarea();
     this.departmentsService.getDepartments().subscribe({
       next: departments => {
         this.availableDepartments.set(departments.filter(department => department.active !== false));
-        this.sendAiAssistantRequest(prompt, history);
+        this.sendAiAssistantRequest(prompt, history, currentRules);
       },
-      error: () => this.sendAiAssistantRequest(prompt, history)
+      error: () => this.sendAiAssistantRequest(prompt, history, currentRules)
     });
   }
 
-  private sendAiAssistantRequest(prompt: string, history: { role: 'user' | 'assistant'; content: string }[]): void {
-    this.policyAiService.ask(prompt, this.policyForm.value.name || 'Política en diseño', this.currentRulesObject(), history).subscribe({
+  private sendAiAssistantRequest(prompt: string, history: { role: 'user' | 'assistant'; content: string }[], currentRules: PolicyBoardRules): void {
+    this.policyAiService.ask(prompt, this.policyForm.value.name || 'Política en diseño', currentRules, history).subscribe({
       next: response => {
         this.aiMessages.update(messages => [...messages, { role: 'assistant', content: response.answer, recommendations: response.recommendations || [] }]);
-        this.aiSuggestedRules.set(response.suggestedRules || null);
+        const suggestedRules = response.suggestedRules ? this.normalizeSuggestedRules(response.suggestedRules) : null;
+        const validationError = suggestedRules ? this.validateRulesSnapshot(suggestedRules) : '';
+        if (suggestedRules && validationError) {
+          this.aiSuggestedRules.set(null);
+          this.aiSuggestion.set({
+            status: 'error',
+            prompt,
+            answer: response.answer || 'La IA devolvió una propuesta inválida.',
+            recommendations: [...(response.recommendations || []), 'La propuesta no pasó validación estructural y no se aplicó.'],
+            summary: 'La IA devolvió un diagrama inconsistente y se bloqueó antes de aplicar.',
+            changeSummary: this.emptyAiChangeSummary(),
+            suggestedRules: null,
+            errorMessage: validationError
+          });
+        } else {
+          this.aiSuggestedRules.set(suggestedRules);
+          this.aiSuggestion.set(this.buildAiSuggestionState(prompt, response.answer, response.recommendations || [], currentRules, suggestedRules));
+        }
         this.aiLoading.set(false);
       },
       error: () => {
         this.aiMessages.update(messages => [...messages, {
           role: 'assistant',
           content: 'No pude conectar con el microservicio IA. Revisá que ai-service esté levantado.',
-          recommendations: ['Ejecutá docker compose up -d --build ai-service frontend.', 'Podés seguir usando la simulación local como respaldo.']
+          recommendations: ['Reintentá en unos segundos.', 'Si el servicio IA no responde, revisá la conexión.']
         }]);
+        this.aiSuggestion.set({
+          status: 'error',
+          prompt,
+          answer: 'No pude completar el análisis.',
+          recommendations: ['Reintentá en unos segundos.', 'Si el servicio IA no responde, revisá ai-service y la red.'],
+          summary: 'La IA no respondió. La pizarra no cambió.',
+          changeSummary: {
+            addedDepartments: [],
+            removedDepartments: [],
+            addedNodes: [],
+            removedNodes: [],
+            updatedNodes: [],
+            addedConnectors: 0,
+            removedConnectors: 0
+          },
+          suggestedRules: null,
+          errorMessage: 'No se pudo conectar con el microservicio IA.'
+        });
         this.aiLoading.set(false);
       }
     });
@@ -911,8 +1217,10 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
       }
       if (finalText.trim()) this.voiceTranscript = `${this.voiceTranscript} ${finalText}`.trim();
       const spoken = `${this.voiceTranscript} ${interimText}`.trim();
-      this.aiPrompt = [this.voiceBasePrompt, spoken].filter(Boolean).join(' ').trim();
+      const nextPrompt = [this.voiceBasePrompt, spoken].filter(Boolean).join(' ').trim();
+      this.aiPrompt = nextPrompt;
       this.cdr.detectChanges();
+      this.syncActiveComposerTextarea();
       this.scheduleVoiceAutoSend();
     };
     this.voiceRecognition.onend = () => {
@@ -935,7 +1243,8 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     }
     this.voiceListening.set(false);
     this.cdr.detectChanges();
-    if (sendIfReady && this.aiPrompt.trim() && !this.aiLoading()) this.askAiAssistant();
+    if (!sendIfReady) return;
+    if (this.aiPrompt.trim() && !this.aiLoading()) this.askAiAssistant();
   }
 
   private scheduleVoiceAutoSend(): void {
@@ -946,35 +1255,81 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   applyAiSuggestedDiagram(): void {
     const suggested = this.aiSuggestedRules();
     if (!suggested || this.editingBlocked()) return;
+    const validationError = this.validateRulesSnapshot(suggested);
+    if (validationError) {
+      const current = this.aiSuggestion();
+      if (current) {
+        this.aiSuggestion.set({
+          ...current,
+          status: 'error',
+          suggestedRules: null,
+          summary: 'La sugerencia no pasó validación estructural y no se aplicó.',
+          errorMessage: validationError
+        });
+      }
+      this.aiSuggestedRules.set(null);
+      this.uiNotification.show('error', 'La propuesta IA no es válida. Revisá la estructura antes de aplicar.');
+      return;
+    }
+    const beforeApply = this.currentRulesObject();
     this.boardDepartments.set(suggested.departments || []);
     this.laneHeights.set(suggested.laneHeights || {});
     this.nodes.set((suggested.nodes || []).map(node => ({ ...node, config: this.normalizeNodeConfig(node) })));
     this.connectors.set(suggested.connectors || []);
     this.syncRules();
     this.aiSuggestedRules.set(null);
+    const current = this.aiSuggestion();
+    if (current) {
+      this.aiSuggestion.set({ ...current, status: 'applied', suggestedRules: null, summary: 'La sugerencia fue aplicada a la pizarra.', changeSummary: this.buildAiChangeSummary(beforeApply, suggested) });
+    }
     this.uiNotification.show('success', 'Propuesta IA aplicada. Corré Simular antes de publicarla.');
+  }
+
+  discardAiSuggestion(): void {
+    const current = this.aiSuggestion();
+    if (!current) return;
+    this.aiSuggestedRules.set(null);
+    this.aiSuggestion.set({ ...current, status: 'discarded', suggestedRules: null, summary: 'La sugerencia fue descartada sin modificar la pizarra.' });
   }
 
   simulateCurrentDesign(): void {
     this.syncRules();
     this.simulationOpen.set(true);
-    this.simulationProgress.set(0);
-    this.simulationReport.set({ startedAt: performance.now(), status: 'running', bottlenecks: [], errors: [], warnings: [], checkedPaths: 0 });
-    this.simulationChecks.set([{ label: 'Motor predictivo FastAPI', status: 'running', detail: 'Enviando diseño al microservicio de simulación.' }]);
-    this.operationService.getLearningEvents().subscribe({
-      next: events => {
-        const policyName = this.policyForm.value.name || 'Política en diseño';
-        const learnedEvents = events.map(event => ({ ...event, policyName }));
-        this.policyAiService.learnExecution(learnedEvents).subscribe({
-          next: () => this.runAiSimulationRequest(),
-          error: () => this.runAiSimulationRequest()
-        });
-      },
+    this.simulationProgress.set(10);
+    this.simulationReport.set({ startedAt: performance.now(), status: 'running', source: 'verifier', bottlenecks: [], errors: [], warnings: [], checkedPaths: 0, checks: [{ label: 'Verificador dry-run', status: 'running', detail: 'Analizando la snapshot sin mutar el estado persistido.' }] });
+    this.simulationChecks.set([{ label: 'Verificador dry-run', status: 'running', detail: 'Analizando la snapshot sin mutar el estado persistido.' }]);
+    this.runDryRunVerifier();
+  }
+
+  private runDryRunVerifier(): void {
+    const policyName = this.policyForm.value.name || 'Política en diseño';
+    this.policyService.verifyDryRun(policyName, this.currentRulesObject()).subscribe({
+      next: report => this.applyVerifierReport(report),
       error: () => this.runAiSimulationRequest()
     });
   }
 
+  private applyVerifierReport(report: PolicyDryRunReport): void {
+    this.simulationChecks.set(report.checks.map(check => ({ ...check })));
+    this.simulationReport.set({
+      startedAt: performance.now() - report.durationMs,
+      finishedAt: performance.now(),
+      durationMs: report.durationMs,
+      status: report.status,
+      source: 'verifier',
+      policyName: report.policyName,
+      bottlenecks: report.bottlenecks,
+      errors: report.errors,
+      warnings: report.warnings,
+      checkedPaths: report.checkedPaths,
+      checks: report.checks.map(check => ({ ...check })),
+      recommendations: report.recommendations
+    });
+    this.simulationProgress.set(100);
+  }
+
   private runAiSimulationRequest(): void {
+    this.uiNotification.show('info', 'El verificador no respondió; usando la simulación IA de respaldo.');
     this.policyAiService.simulate(this.policyForm.value.name || 'Política en diseño', this.currentRulesObject()).subscribe({
       next: report => {
         this.simulationChecks.set(report.checks.map(check => ({ ...check })));
@@ -983,10 +1338,14 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
           finishedAt: performance.now(),
           durationMs: report.durationMs,
           status: report.status,
+          source: 'ai',
+          policyName: this.policyForm.value.name || 'Política en diseño',
           bottlenecks: report.bottlenecks,
           errors: report.errors,
           warnings: report.warnings,
-          checkedPaths: report.checkedPaths
+          checkedPaths: report.checkedPaths,
+          checks: report.checks.map(check => ({ ...check })),
+          recommendations: report.recommendations
         });
         this.simulationProgress.set(100);
       },
@@ -995,9 +1354,9 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   }
 
   private runLocalSimulationFallback(): void {
-    this.uiNotification.show('info', 'El microservicio IA no respondió; usando checklist local seguro.');
+    this.uiNotification.show('info', 'La verificación de respaldo no respondió; usando checklist local seguro.');
     this.simulationProgress.set(0);
-    this.simulationReport.set({ startedAt: performance.now(), status: 'running', bottlenecks: [], errors: [], warnings: [], checkedPaths: 0 });
+    this.simulationReport.set({ startedAt: performance.now(), status: 'running', source: 'local', bottlenecks: [], errors: [], warnings: [], checkedPaths: 0, checks: [] });
     const checks = this.createSimulationChecks();
     this.simulationChecks.set(checks);
     checks.forEach((_, index) => window.setTimeout(() => this.runSimulationCheck(index), index * 140));
@@ -1016,12 +1375,36 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
     return 'Sin iniciar';
   }
 
+  boardControlIcon(control: 'zoom-out' | 'zoom-in' | 'field-up' | 'field-down' | 'send-back' | 'resize-region'): string {
+    if (control === 'zoom-out') return 'lucideMinus';
+    if (control === 'zoom-in') return 'lucidePlus';
+    if (control === 'field-up') return 'lucideChevronUp';
+    if (control === 'field-down') return 'lucideChevronDown';
+    if (control === 'send-back') return 'lucideMoveDown';
+    return 'lucideMaximize2';
+  }
+
   checkIcon(status: SimulationCheck['status']): string {
-    if (status === 'ok') return '✅';
-    if (status === 'warning') return '⚠️';
-    if (status === 'error') return '❌';
-    if (status === 'running') return '⏳';
-    return '○';
+    if (status === 'ok') return 'lucideCircleCheck';
+    if (status === 'warning') return 'lucideTriangleAlert';
+    if (status === 'error') return 'lucideCircleX';
+    if (status === 'running') return 'lucideHourglass';
+    return 'lucideCircle';
+  }
+
+  voicePromptIcon(): string {
+    return this.voiceListening() ? 'lucideSquare' : 'lucideMic';
+  }
+
+  voicePromptTitle(): string {
+    if (this.voiceListening()) return 'Detener dictado por voz';
+    return 'Dictar al asistente';
+  }
+
+  openDocumentRepository(): void {
+    const id = this.policyId();
+    if (!id) return;
+    this.router.navigate(['/policies', id, 'documents']);
   }
 
   typedPolicyVersions(): PolicyVersionItem[] {
@@ -1118,15 +1501,217 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
 
   compareWithCurrent(version: PolicyVersionItem): void {
     try {
-      const current = JSON.parse(this.policyForm.value.rules || JSON.stringify(EMPTY_RULES));
-      const snapshot = JSON.parse(version.diagramSnapshotJson || version['rules'] || JSON.stringify(EMPTY_RULES));
-      const currentNodes = current.nodes?.length || 0;
-      const versionNodes = snapshot.nodes?.length || 0;
-      const currentConnectors = current.connectors?.length || 0;
-      const versionConnectors = snapshot.connectors?.length || 0;
-      this.versionComparison.set(`Actual: ${currentNodes} nodos / ${currentConnectors} conexiones · ${version.name}: ${versionNodes} nodos / ${versionConnectors} conexiones.`);
+      const currentRules = this.currentRulesObject();
+      const versionRules = this.parseVersionRules(version);
+      const currentMetrics = this.buildPerformanceSnapshot(currentRules);
+      const versionMetrics = this.buildPerformanceSnapshot(versionRules);
+      const deltas = this.buildPerformanceDeltas(currentMetrics, versionMetrics);
+      const historyEvents = [] as any[];
+      const requestText = this.buildComparisonRequestText(version.name, currentMetrics, versionMetrics, deltas);
+      const view = this.buildComparisonView(version, requestText, currentMetrics, versionMetrics, deltas, historyEvents);
+      this.performanceComparison.set(view);
+      this.versionComparison.set(`${version.name}: comparación operativa en curso.`);
+
+      this.operationService.getLearningEvents().subscribe({
+        next: events => this.requestPerformanceInsights(version, requestText, currentMetrics, versionMetrics, deltas, events),
+        error: () => this.requestPerformanceInsights(version, requestText, currentMetrics, versionMetrics, deltas, [])
+      });
     } catch {
       this.versionComparison.set('No se pudo comparar esta versión con el estado actual.');
+      this.performanceComparison.set(null);
+    }
+  }
+
+  generateComparisonReport(): void {
+    const comparison = this.performanceComparison();
+    if (!comparison || comparison.loading) return;
+
+    this.comparisonReportLoading.set(true);
+    this.policyAiService.draftReport({
+      text: comparison.requestText,
+      transcript: comparison.requestText,
+      policyName: this.policyForm.value.name || 'Política en diseño',
+      mode: 'comparison',
+      comparison: {
+        versionName: comparison.versionName,
+        current: comparison.current,
+        version: comparison.version,
+        deltas: comparison.deltas,
+        history: comparison.history
+      }
+    }).subscribe({
+      next: report => {
+        this.performanceComparison.update(view => view ? { ...view, reportDraft: report } : view);
+        this.comparisonReportLoading.set(false);
+      },
+      error: () => {
+        this.uiNotification.show('error', 'No se pudo generar el informe de comparación.');
+        this.comparisonReportLoading.set(false);
+      }
+    });
+  }
+
+  private requestPerformanceInsights(
+    version: PolicyVersionItem,
+    requestText: string,
+    currentMetrics: AiPerformanceSnapshot,
+    versionMetrics: AiPerformanceSnapshot,
+    deltas: AiPerformanceSnapshot,
+    events: any[]
+  ): void {
+    const history = this.buildPerformanceHistory(events);
+    const comparison = {
+      versionName: version.name,
+      current: currentMetrics,
+      version: versionMetrics,
+      deltas,
+      history
+    } satisfies AiPolicyComparisonContext;
+    const view = this.buildComparisonView(version, requestText, currentMetrics, versionMetrics, deltas, events, history);
+
+    this.performanceComparison.set({ ...view, loading: true, historySummary: this.formatHistorySummary(history), prediction: null });
+    this.policyAiService.getAnalystInsights(
+      requestText,
+      events,
+      this.policyForm.value.name || 'Política en diseño',
+      comparison
+    ).subscribe({
+      next: response => {
+        this.performanceComparison.update(current => current ? { ...current, loading: false, prediction: response, history, historySummary: this.formatHistorySummary(history) } : current);
+        this.versionComparison.set(`${version.name}: ruta ${response.route} · riesgo ${response.risk} · prioridad ${response.priority}`);
+      },
+      error: () => {
+        this.performanceComparison.update(current => current ? { ...current, loading: false } : current);
+        this.versionComparison.set(`${version.name}: comparación lista, pero ai-service no respondió.`);
+      }
+    });
+  }
+
+  private buildComparisonView(
+    version: PolicyVersionItem,
+    requestText: string,
+    currentMetrics: AiPerformanceSnapshot,
+    versionMetrics: AiPerformanceSnapshot,
+    deltas: AiPerformanceSnapshot,
+    events: any[],
+    history?: PolicyPerformanceHistorySummary
+  ): PolicyPerformanceComparisonView {
+    const resolvedHistory = history || this.buildPerformanceHistory(events);
+    return {
+      versionId: version.id,
+      versionName: version.name,
+      requestText,
+      current: currentMetrics,
+      version: versionMetrics,
+      deltas,
+      history: resolvedHistory,
+      historySummary: this.formatHistorySummary(resolvedHistory),
+      loading: false,
+      prediction: null,
+      reportDraft: null,
+      rows: this.buildMetricRows(currentMetrics, versionMetrics, deltas)
+    };
+  }
+
+  private buildComparisonRequestText(
+    versionName: string,
+    currentMetrics: AiPerformanceSnapshot,
+    versionMetrics: AiPerformanceSnapshot,
+    deltas: AiPerformanceSnapshot
+  ): string {
+    return [
+      `Compará el rendimiento operativo de la política actual con ${versionName}.`,
+      `Actual: ${this.describePerformanceSnapshot(currentMetrics)}.`,
+      `Versión: ${this.describePerformanceSnapshot(versionMetrics)}.`,
+      `Deltas: ${this.describePerformanceSnapshot(deltas, true)}.`
+    ].join(' ');
+  }
+
+  private describePerformanceSnapshot(snapshot: AiPerformanceSnapshot, prefixDelta = false): string {
+    const prefix = prefixDelta ? '' : '';
+    return `${prefix}nodos ${snapshot.totalNodes}, conexiones ${snapshot.totalConnectors}, tareas ${snapshot.taskNodes}, decisiones ${snapshot.decisionNodes}, departamentos ${snapshot.departments}, campos ${snapshot.formFields}, visibles ${snapshot.visibleFields}, notificaciones ${snapshot.notifyFields}`;
+  }
+
+  private buildPerformanceSnapshot(rules: PolicyBoardRules): AiPerformanceSnapshot {
+    const nodes = rules.nodes || [];
+    const connectors = rules.connectors || [];
+    const departments = rules.departments || [];
+    const taskNodes = nodes.filter(node => node.type === 'TASK');
+    const decisionNodes = nodes.filter(node => node.type === 'GATEWAY');
+    const fields = taskNodes.flatMap(node => node.config?.form?.fields || []);
+    return {
+      totalNodes: nodes.length,
+      totalConnectors: connectors.length,
+      taskNodes: taskNodes.length,
+      decisionNodes: decisionNodes.length,
+      departments: departments.length,
+      formFields: fields.length,
+      visibleFields: fields.filter(field => field.visibleToClient).length,
+      notifyFields: fields.filter(field => field.notifyClient).length
+    };
+  }
+
+  private buildPerformanceDeltas(current: AiPerformanceSnapshot, version: AiPerformanceSnapshot): AiPerformanceSnapshot {
+    return {
+      totalNodes: version.totalNodes - current.totalNodes,
+      totalConnectors: version.totalConnectors - current.totalConnectors,
+      taskNodes: version.taskNodes - current.taskNodes,
+      decisionNodes: version.decisionNodes - current.decisionNodes,
+      departments: version.departments - current.departments,
+      formFields: version.formFields - current.formFields,
+      visibleFields: version.visibleFields - current.visibleFields,
+      notifyFields: version.notifyFields - current.notifyFields
+    };
+  }
+
+  private buildMetricRows(current: AiPerformanceSnapshot, version: AiPerformanceSnapshot, deltas: AiPerformanceSnapshot): PolicyPerformanceMetricRow[] {
+    return [
+      { label: 'Nodos', current: current.totalNodes, version: version.totalNodes, delta: deltas.totalNodes },
+      { label: 'Conectores', current: current.totalConnectors, version: version.totalConnectors, delta: deltas.totalConnectors },
+      { label: 'Tareas', current: current.taskNodes, version: version.taskNodes, delta: deltas.taskNodes },
+      { label: 'Decisiones', current: current.decisionNodes, version: version.decisionNodes, delta: deltas.decisionNodes },
+      { label: 'Departamentos', current: current.departments, version: version.departments, delta: deltas.departments },
+      { label: 'Campos', current: current.formFields, version: version.formFields, delta: deltas.formFields },
+      { label: 'Visibles al cliente', current: current.visibleFields, version: version.visibleFields, delta: deltas.visibleFields },
+      { label: 'Notifican al cliente', current: current.notifyFields, version: version.notifyFields, delta: deltas.notifyFields }
+    ];
+  }
+
+  private buildPerformanceHistory(events: any[]): PolicyPerformanceHistorySummary {
+    const count = events.length;
+    if (!count) {
+      return { count: 0, completed: 0, avgDurationHours: 0, avgQueueSize: 0, avgReworkCount: 0, avgWaitingSignatureHours: 0 };
+    }
+
+    const aggregate = events.reduce((acc, event) => {
+      acc.completed += event.completed ? 1 : 0;
+      acc.duration += Number(event.durationHours || 0);
+      acc.queue += Number(event.queueSize || 0);
+      acc.rework += Number(event.reworkCount || 0);
+      acc.waiting += Number(event.waitingSignatureHours || 0);
+      return acc;
+    }, { completed: 0, duration: 0, queue: 0, rework: 0, waiting: 0 });
+
+    return {
+      count,
+      completed: aggregate.completed,
+      avgDurationHours: Number((aggregate.duration / count).toFixed(2)),
+      avgQueueSize: Number((aggregate.queue / count).toFixed(2)),
+      avgReworkCount: Number((aggregate.rework / count).toFixed(2)),
+      avgWaitingSignatureHours: Number((aggregate.waiting / count).toFixed(2))
+    };
+  }
+
+  private formatHistorySummary(history: PolicyPerformanceHistorySummary): string {
+    if (!history.count) return 'Sin historial operativo suficiente para una predicción confiable.';
+    return `${history.count} evento(s) · ${history.avgDurationHours} h promedio · cola ${history.avgQueueSize} · retrabajo ${history.avgReworkCount} · espera firma ${history.avgWaitingSignatureHours} h`;
+  }
+
+  private parseVersionRules(version: PolicyVersionItem): PolicyBoardRules {
+    try {
+      return JSON.parse(version.diagramSnapshotJson || version['rules'] || JSON.stringify(EMPTY_RULES));
+    } catch {
+      return JSON.parse(JSON.stringify(EMPTY_RULES));
     }
   }
 
@@ -1574,39 +2159,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy {
   }
 
   private validatePolicyRules(): string {
-    const startCount = this.nodes().filter(node => node.type === 'START').length;
-    const endCount = this.nodes().filter(node => node.type === 'END').length;
-    const tasks = this.nodes().filter(node => node.type === 'TASK');
-    const gateways = this.nodes().filter(node => node.type === 'GATEWAY');
-    const parallels = this.nodes().filter(node => node.type === 'PARALLEL');
-    const joins = this.nodes().filter(node => node.type === 'JOIN');
-    const decisionFieldIds = new Set(tasks.flatMap(task => (task.config?.form?.fields || []).filter(field => field.usedForDecision).map(field => field.id)));
-    const validConnections = this.connectors().every(connector =>
-      this.nodes().some(node => node.id === connector.sourceId) && this.nodes().some(node => node.id === connector.targetId)
-    );
-    if (startCount !== 1) return 'Toda política debe tener exactamente un nodo Inicio.';
-    if (endCount < 1) return 'Toda política debe tener al menos un nodo Fin.';
-    if (!validConnections || this.connectors().length === 0) return 'Toda política debe tener conexiones válidas antes de publicarse.';
-    const invalidStart = this.nodes().find(node => node.type === 'START' && (this.incomingConnectors(node.id).length > 0 || this.outgoingConnectors(node.id).length < 1));
-    if (invalidStart) return 'El nodo Inicio no puede tener entradas y debe tener al menos una salida.';
-    const invalidEnd = this.nodes().find(node => node.type === 'END' && this.outgoingConnectors(node.id).length > 0);
-    if (invalidEnd) return `El nodo Fin "${invalidEnd.label}" no puede tener salidas.`;
-    if (tasks.some(task => !task.departmentId)) return 'No puede haber tareas sin departamento responsable.';
-    const unconfiguredTask = tasks.find(task => !task.config?.taskType || !task.config?.estimatedTime || !task.config?.form || (task.config.form.fields || []).length === 0);
-    if (unconfiguredTask) return `La tarea "${unconfiguredTask.label}" necesita configuración mínima y al menos un campo de formulario.`;
-    const invalidFieldTask = tasks.find(task => (task.config?.form?.fields || []).some(field => !field.label || field.order < 1 || (this.supportsOptions(field.type) && (!field.options || field.options.length === 0))));
-    if (invalidFieldTask) return `La tarea "${invalidFieldTask.label}" tiene campos de formulario incompletos.`;
-    const signatureTask = tasks.find(task => task.config?.requiresSignature && !(task.config?.form?.fields || []).some(field => field.type === 'SIGNATURE'));
-    if (signatureTask) return `La tarea "${signatureTask.label}" requiere firma pero no tiene campo Firma configurado.`;
-    const invalidGateway = gateways.find(gateway => this.outgoingConnectors(gateway.id).length < 2 || !gateway.config?.evaluatedField || !gateway.config?.branches || !gateway.config?.defaultBranch);
-    if (invalidGateway) return `La decisión "${invalidGateway.label}" necesita dato evaluado, condiciones, camino por defecto y al menos dos salidas.`;
-    const unknownGatewayField = gateways.find(gateway => gateway.config?.evaluatedField && !decisionFieldIds.has(gateway.config.evaluatedField));
-    if (unknownGatewayField) return `La decisión "${unknownGatewayField.label}" referencia un campo evaluado que no existe como salida usable de una tarea.`;
-    const invalidParallel = parallels.find(node => this.incomingConnectors(node.id).length < 1 || this.outgoingConnectors(node.id).length < 2);
-    if (invalidParallel) return `El paralelo "${invalidParallel.label}" necesita una entrada y dos o más salidas.`;
-    const invalidJoin = joins.find(node => this.incomingConnectors(node.id).length < 2 || this.outgoingConnectors(node.id).length < 1);
-    if (invalidJoin) return `La unión "${invalidJoin.label}" necesita dos o más entradas y al menos una salida.`;
-    return '';
+    return this.validateRulesSnapshot(this.currentRulesObject());
   }
 
   private outgoingConnectors(nodeId: string): BoardConnector[] {

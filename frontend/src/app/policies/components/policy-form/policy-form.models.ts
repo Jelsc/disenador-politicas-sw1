@@ -134,16 +134,43 @@ export interface SimulationReport {
   finishedAt?: number;
   durationMs?: number;
   status: 'idle' | 'running' | 'ok' | 'warning' | 'error';
+  source?: 'verifier' | 'ai' | 'local';
+  policyName?: string;
   bottlenecks: string[];
   errors: string[];
   warnings: string[];
   checkedPaths: number;
+  checks?: SimulationCheck[];
+  recommendations?: string[];
 }
 
 export interface AiChatMessage {
   role: 'user' | 'assistant';
   content: string;
   recommendations?: string[];
+}
+
+export type AiSuggestionStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'applied' | 'discarded';
+
+export interface AiBoardSuggestionChangeSummary {
+  addedDepartments: string[];
+  removedDepartments: string[];
+  addedNodes: string[];
+  removedNodes: string[];
+  updatedNodes: string[];
+  addedConnectors: number;
+  removedConnectors: number;
+}
+
+export interface AiBoardSuggestionState {
+  status: AiSuggestionStatus;
+  prompt: string;
+  answer: string;
+  recommendations: string[];
+  summary: string;
+  changeSummary: AiBoardSuggestionChangeSummary;
+  suggestedRules: PolicyBoardRules | null;
+  errorMessage?: string;
 }
 
 export const EMPTY_RULES: PolicyBoardRules = { version: 1, departments: [], nodes: [], connectors: [] };

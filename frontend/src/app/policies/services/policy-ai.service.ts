@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { PolicyBoardRules } from '../components/policy-form/policy-form.models';
 
 export interface AiSimulationCheck {
   label: string;
@@ -23,7 +24,7 @@ export interface AiSimulationReport {
 export interface AiAssistantResponse {
   answer: string;
   recommendations: string[];
-  suggestedRules?: any;
+  suggestedRules?: PolicyBoardRules | null;
 }
 
 export interface AiAssistantMessage {
@@ -79,6 +80,34 @@ export interface AiReportDraftResponse {
   confidence: number;
 }
 
+export interface AiPerformanceSnapshot {
+  totalNodes: number;
+  totalConnectors: number;
+  taskNodes: number;
+  decisionNodes: number;
+  departments: number;
+  formFields: number;
+  visibleFields: number;
+  notifyFields: number;
+}
+
+export interface AiPerformanceHistorySummary {
+  count: number;
+  completed: number;
+  avgDurationHours: number;
+  avgQueueSize: number;
+  avgReworkCount: number;
+  avgWaitingSignatureHours: number;
+}
+
+export interface AiPolicyComparisonContext {
+  versionName: string;
+  current: AiPerformanceSnapshot;
+  version: AiPerformanceSnapshot;
+  deltas: AiPerformanceSnapshot;
+  history: AiPerformanceHistorySummary;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -102,15 +131,27 @@ export class PolicyAiService {
     return this.http.post<AiVoiceIntakeResponse>(`${this.apiUrl}/voice/intake`, payload);
   }
 
-  getAnalystInsights(requestText: string, history: AiExecutionLearningEvent[] = [], policyName?: string): Observable<AiAnalystInsightsResponse> {
-    return this.http.post<AiAnalystInsightsResponse>(`${this.apiUrl}/analyst/insights`, {
+  getAnalystInsights(
+    requestText: string,
+    history: AiExecutionLearningEvent[] = [],
+    policyName?: string,
+    comparison?: AiPolicyComparisonContext
+  ): Observable<AiAnalystInsightsResponse> {
+    const body: Record<string, unknown> = {
       requestText,
       history,
       policyName
-    });
+    };
+
+    if (comparison) body['comparison'] = comparison;
+
+    return this.http.post<AiAnalystInsightsResponse>(`${this.apiUrl}/analyst/insights`, body);
   }
 
-  draftReport(payload: AiVoiceIntakeRequest & { transcript?: string }): Observable<AiReportDraftResponse> {
-    return this.http.post<AiReportDraftResponse>(`${this.apiUrl}/reports/draft`, payload);
+  draftReport(payload: AiVoiceIntakeRequest & { transcript?: string; comparison?: AiPolicyComparisonContext; mode?: 'comparison' | 'report' }): Observable<AiReportDraftResponse> {
+    const body: Record<string, unknown> = { ...payload };
+    if (!('comparison' in payload) || payload.comparison === undefined) delete body['comparison'];
+    if (!('mode' in payload) || payload.mode === undefined) delete body['mode'];
+    return this.http.post<AiReportDraftResponse>(`${this.apiUrl}/reports/draft`, body);
   }
 }

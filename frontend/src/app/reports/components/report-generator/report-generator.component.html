@@ -1,0 +1,69 @@
+<div class="report-container">
+  <div class="report-header">
+    <h1>Generación de Reportes e Informes Operativos</h1>
+    <p>Seleccioná una política y pedile a la IA que redacte un informe o borrador basado en sus reglas y diagramas.</p>
+  </div>
+
+  <div class="report-layout">
+    <aside class="report-sidebar">
+      <div class="form-group">
+        <label for="policySelect">Política Base</label>
+        <select id="policySelect" [ngModel]="selectedPolicyId()" (ngModelChange)="selectedPolicyId.set($event)">
+          <option value="" disabled>Seleccione una política</option>
+          <option *ngFor="let p of policies()" [value]="p.id">{{ p.name }}</option>
+        </select>
+      </div>
+
+      <div class="ai-composer-shell" *ngIf="selectedPolicyId()">
+        <div class="ai-composer" [class.listening]="voiceListening()">
+          <textarea #reportComposerTextarea rows="1" [(ngModel)]="reportPrompt"
+            (input)="syncActiveComposerTextarea()" (keydown)="handleComposerKeydown($event)"
+            placeholder="Describí el informe operativo que necesitás..."></textarea>
+          <div class="ai-composer-actions">
+            <button class="composer-icon" type="button" [disabled]="reportLoading()" (click)="toggleVoicePrompt()"
+              [title]="voicePromptTitle()">
+              <ng-icon [name]="voicePromptIcon()"></ng-icon>
+            </button>
+            <button class="composer-send report-send" type="button"
+              [disabled]="reportLoading() || !reportPrompt().trim()"
+              (click)="generateReport()">
+              <ng-icon name="lucideSend"></ng-icon>
+            </button>
+          </div>
+        </div>
+        <p class="ai-listening-hint" *ngIf="voiceListening()">Escuchando. Se envía al detectar silencio.</p>
+      </div>
+      <div *ngIf="!selectedPolicyId()" class="empty-composer-message">
+        <ng-icon name="lucideCircleAlert"></ng-icon>
+        <p>Seleccioná una política para habilitar la IA.</p>
+      </div>
+    </aside>
+
+    <main class="report-content">
+      <div class="ai-loading" *ngIf="reportLoading()">
+        <ng-icon name="lucideRotateCcw" class="spin"></ng-icon>
+        <p>Generando informe, espere unos segundos...</p>
+      </div>
+
+      <div class="ai-report-result" *ngIf="reportResult() && !reportLoading()">
+        <h4>{{ reportResult()!.draftTitle }}</h4>
+        <div class="report-html-body" [innerHTML]="reportResult()!.draftBody"></div>
+        <div class="report-remarks" *ngIf="reportResult()!.clarification">
+          <strong>Aclaración IA:</strong> {{ reportResult()!.clarification }}
+        </div>
+        <div class="report-missing" *ngIf="reportResult()!.missingFields.length">
+          <strong>Campos que faltan para completar el trámite:</strong>
+          <ul>
+            <li *ngFor="let mf of reportResult()!.missingFields">{{ mf }}</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="report-empty" *ngIf="!reportResult() && !reportLoading()">
+        <ng-icon name="lucideBookOpen"></ng-icon>
+        <h3>Sin informe generado</h3>
+        <p>El borrador aparecerá aquí una vez que la IA termine su análisis.</p>
+      </div>
+    </main>
+  </div>
+</div>

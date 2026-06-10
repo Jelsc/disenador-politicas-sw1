@@ -1,6 +1,6 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { PolicyService } from '../../services/policy.service';
 import { Policy, PolicyInvitationNotification } from '../../models/policy.model';
 import { AuthService } from '../../../core/services/auth.service';
@@ -15,11 +15,11 @@ import { UiNotificationService } from '../../../core/services/ui-notification.se
     <div class="page-container">
       <div class="page-header">
         <div class="header-text">
-          <h2 class="page-title">Gestión de Políticas</h2>
-          <p class="page-subtitle">Consulta y administra las políticas del sistema.</p>
+          <h2 class="page-title">{{ isDocumentLauncher() ? 'Repositorios Documentales' : 'Gestión de Políticas' }}</h2>
+          <p class="page-subtitle">{{ isDocumentLauncher() ? 'Seleccioná una política para gestionar su repositorio documental.' : 'Consulta y administra las políticas del sistema.' }}</p>
           <p class="page-counter" *ngIf="!loading() && !errorMessage()">{{ policies().length }} política(s) encontradas</p>
         </div>
-        <div class="header-actions" *ngIf="canManagePolicies()">
+        <div class="header-actions" *ngIf="!isDocumentLauncher() && canManagePolicies()">
           <button class="btn-primary" routerLink="/policies/new">
             <ng-icon name="lucidePlus" class="icon-sm"></ng-icon>
             Crear Política
@@ -68,21 +68,29 @@ import { UiNotificationService } from '../../../core/services/ui-notification.se
               </td>
               <td class="text-muted">{{ formatBoliviaDate(policy.updatedAt) }}</td>
               <td class="actions-col">
-                <button class="btn-icon" title="Ver detalle" (click)="viewPolicy(policy.id)">
-                  <ng-icon name="lucideEye"></ng-icon>
-                </button>
-                <button class="btn-icon" title="Editar" *ngIf="canEditPolicy(policy)" (click)="editPolicy(policy.id)">
-                  <ng-icon name="lucideEdit2"></ng-icon>
-                </button>
-                <button class="btn-icon" title="Clonar" *ngIf="canClonePolicy(policy)" (click)="clonePolicy(policy.id)">
-                  <ng-icon name="lucideCopy"></ng-icon>
-                </button>
-                <button class="btn-icon" title="Archivar" *ngIf="canArchivePolicy(policy)" (click)="archivePolicy(policy.id)">
-                  <ng-icon name="lucideArchive"></ng-icon>
-                </button>
-                <button class="btn-icon danger" title="Borrar" *ngIf="canDeletePolicy(policy)" (click)="deletePolicy(policy.id)">
-                  <ng-icon name="lucideTrash2"></ng-icon>
-                </button>
+                <ng-container *ngIf="isDocumentLauncher()">
+                  <button class="btn-primary" style="padding: 6px 12px; font-size: 13px;" (click)="openRepository(policy.id)">
+                    <ng-icon name="lucideFolderOpen"></ng-icon>
+                    Ver repositorio
+                  </button>
+                </ng-container>
+                <ng-container *ngIf="!isDocumentLauncher()">
+                  <button class="btn-icon" title="Ver detalle" (click)="viewPolicy(policy.id)">
+                    <ng-icon name="lucideEye"></ng-icon>
+                  </button>
+                  <button class="btn-icon" title="Editar" *ngIf="canEditPolicy(policy)" (click)="editPolicy(policy.id)">
+                    <ng-icon name="lucideEdit2"></ng-icon>
+                  </button>
+                  <button class="btn-icon" title="Clonar" *ngIf="canClonePolicy(policy)" (click)="clonePolicy(policy.id)">
+                    <ng-icon name="lucideCopy"></ng-icon>
+                  </button>
+                  <button class="btn-icon" title="Archivar" *ngIf="canArchivePolicy(policy)" (click)="archivePolicy(policy.id)">
+                    <ng-icon name="lucideArchive"></ng-icon>
+                  </button>
+                  <button class="btn-icon danger" title="Borrar" *ngIf="canDeletePolicy(policy)" (click)="deletePolicy(policy.id)">
+                    <ng-icon name="lucideTrash2"></ng-icon>
+                  </button>
+                </ng-container>
               </td>
             </tr>
           </tbody>
@@ -311,6 +319,7 @@ export class PolicyListComponent implements OnInit {
   canManagePolicies = signal(false);
   errorMessage = signal('');
   pendingInvitations: PolicyInvitationNotification[] = [];
+  isDocumentLauncher = signal(false);
   private currentUsername: string | null = null;
   private currentRole: string | null = null;
 
@@ -318,10 +327,12 @@ export class PolicyListComponent implements OnInit {
     private policyService: PolicyService,
     private authService: AuthService,
     private router: Router,
+    private route: ActivatedRoute,
     private uiNotification: UiNotificationService
   ) { }
 
   ngOnInit(): void {
+    this.isDocumentLauncher.set(this.route.snapshot.data['launcher'] === 'document-repository');
     const role = this.authService.getUserRole();
     this.currentRole = role;
     this.currentUsername = this.authService.getUsername();
@@ -379,6 +390,10 @@ export class PolicyListComponent implements OnInit {
 
   viewPolicy(id?: string): void {
     if(id) this.router.navigate(['/policies', id]);
+  }
+
+  openRepository(id?: string): void {
+    if(id) this.router.navigate(['/policies', id, 'documents']);
   }
 
   editPolicy(id?: string): void {

@@ -81,7 +81,7 @@ class AssistantResponse(BaseModel):
     answer: str
     recommendations: list[str] = Field(default_factory=list)
     suggestedRules: dict[str, Any] | None = None
-    modelSource: Literal["ollama"] = "ollama"
+    modelSource: Literal["ollama", "heuristic"] = "ollama"
 
 
 class ExecutionLearningEvent(BaseModel):
@@ -306,20 +306,72 @@ def assistant(request: AssistantRequest) -> AssistantResponse:
     rules = normalize_rules(request.rules)
     simulation = simulate_design(PolicyDesignRequest(policyName=request.policyName, rules=rules))
     runtime = get_ai_runtime()
-    result = runtime.assistant(
-        {
-            "policyName": request.policyName,
-            "prompt": request.prompt,
-            "rules": request.rules,
-            "history": request.history,
-        },
-        simulation.dict(),
-    )
+    try:
+        result = runtime.assistant(
+            {
+                "policyName": request.policyName,
+                "prompt": request.prompt,
+                "rules": request.rules,
+                "history": request.history,
+                "boardContract": assistant_board_contract(request.rules, simulation),
+            },
+            simulation.dict(),
+        )
+        runtime_response = assistant_response_from_runtime(result, request)
+        if runtime_response:
+            return runtime_response
+    except Exception:
+        pass
+
+    try:
+        return assistant_fallback_response(request, rules, simulation)
+    except Exception:
+        return AssistantResponse(
+            answer="El asistente local no pudo usar el runtime, pero mantuve una respuesta segura.",
+            recommendations=["Reintentá la consulta o verificá el servicio Ollama."],
+            modelSource="heuristic",
+        )
+
+
+def assistant_response_from_runtime(result: Any, request: AssistantRequest) -> AssistantResponse | None:
+    if not isinstance(result, dict):
+        return None
+
+    answer = str(result.get("answer") or "").strip()
+    if not answer:
+        return None
+
+    recommendations = result.get("recommendations")
+    if isinstance(recommendations, list):
+        clean_recommendations = [str(item).strip() for item in recommendations if str(item).strip()]
+    else:
+        clean_recommendations = []
+
+    model_source = result.get("modelSource")
+    if model_source not in {"ollama", "heuristic"}:
+        model_source = "ollama"
+
     return AssistantResponse(
-        answer=result["answer"],
-        recommendations=result["recommendations"],
-        suggestedRules=result.get("suggestedRules"),
-        modelSource=result.get("modelSource", "ollama"),
+        answer=answer,
+        recommendations=clean_recommendations[:8],
+        suggestedRules=sanitize_suggested_rules(result.get("suggestedRules"), request.policyName),
+        modelSource=model_source,
+    )
+
+
+def assistant_fallback_response(request: AssistantRequest, rules: dict[str, Any], simulation: SimulationReport) -> AssistantResponse:
+    prompt = request.prompt.strip()
+    if wants_flow_generation(prompt):
+        response = collaborate_existing_flow(request, prompt, simulation)
+        if response.suggestedRules is not None:
+            response.suggestedRules = sanitize_suggested_rules(response.suggestedRules, request.policyName)
+        response.modelSource = "heuristic"
+        return response
+
+    return AssistantResponse(
+        answer=local_assistant_answer(prompt, simulation),
+        recommendations=local_prompt_recommendations(prompt, rules),
+        modelSource="heuristic",
     )
 
 
@@ -391,6 +443,60 @@ def merge_neural_with_heuristic(neural: AssistantResponse | None, heuristic: Ass
         recommendations=recommendations,
         suggestedRules=heuristic.suggestedRules,
     )
+
+
+def assistant_board_contract(rules: dict[str, Any], simulation: SimulationReport) -> dict[str, Any]:
+    normalized = normalize_rules(rules)
+    nodes = normalized["nodes"]
+    departments = list((rules or {}).get("departments") or [])
+    task_nodes = [node for node in nodes if str(node.get("type") or "").upper() == "TASK"]
+    decision_nodes = [node for node in nodes if str(node.get("type") or "").upper() == "GATEWAY"]
+    return {
+        "intent": "Return a full board snapshot that can be validated and applied without inventing disconnected elements.",
+        "mustKeep": [
+            "Use only departments that already exist in the snapshot or add them explicitly before assigning nodes.",
+            "Never create connectors that reference unknown node ids.",
+            "Never leave a TASK without departmentId, taskType, estimatedTime, and a non-empty form.",
+            "Never return a GATEWAY without evaluatedField, branches, defaultBranch, and at least two outgoing connectors.",
+            "If you add nodes, connect them to the existing flow.",
+            "Do not invent nodes that are not connected to the workflow.",
+        ],
+        "currentState": {
+            "departmentIds": [str(department.get("id") or "") for department in departments if str(department.get("id") or "").strip()],
+            "taskCount": len(task_nodes),
+            "decisionCount": len(decision_nodes),
+            "hasErrors": bool(simulation.errors),
+            "hasWarnings": bool(simulation.warnings),
+            "bottlenecks": list(simulation.bottlenecks),
+        },
+        "validNodeTypes": ["START", "TASK", "GATEWAY", "PARALLEL", "JOIN", "END", "OBJECT", "NOTE", "REGION"],
+        "validConnectorKinds": ["CONTROL_FLOW", "OBJECT_FLOW"],
+    }
+
+
+def sanitize_suggested_rules(candidate: Any, policy_name: str | None) -> dict[str, Any] | None:
+    if not isinstance(candidate, dict):
+        return None
+
+    nodes = candidate.get("nodes")
+    connectors = candidate.get("connectors")
+    departments = candidate.get("departments")
+    if not isinstance(nodes, list) or not isinstance(connectors, list) or not isinstance(departments, list):
+        return None
+
+    normalized_candidate: dict[str, Any] = {
+        "version": candidate.get("version", 1),
+        "departments": departments,
+        "laneHeights": candidate.get("laneHeights") if isinstance(candidate.get("laneHeights"), dict) else {},
+        "nodes": nodes,
+        "connectors": connectors,
+    }
+
+    report = simulate_design(PolicyDesignRequest(policyName=policy_name, rules=normalized_candidate))
+    if report.errors:
+        return None
+
+    return normalized_candidate
 
 
 def parse_llm_json(content: str) -> dict[str, Any]:

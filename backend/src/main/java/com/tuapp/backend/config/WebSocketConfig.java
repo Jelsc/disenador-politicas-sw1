@@ -1,5 +1,6 @@
 package com.tuapp.backend.config;
 
+import com.tuapp.backend.documents.collaboration.DocumentCollaborationWebSocketHandler;
 import com.tuapp.backend.policies.collaboration.PolicyBoardWebSocketHandler;
 import com.tuapp.backend.policies.collaboration.PolicyNotificationWebSocketHandler;
 import org.springframework.context.annotation.Configuration;
@@ -17,10 +18,14 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     private final PolicyBoardWebSocketHandler boardHandler;
     private final PolicyNotificationWebSocketHandler notificationHandler;
+    private final DocumentCollaborationWebSocketHandler documentCollaborationHandler;
 
-    public WebSocketConfig(PolicyBoardWebSocketHandler boardHandler, PolicyNotificationWebSocketHandler notificationHandler) {
+    public WebSocketConfig(PolicyBoardWebSocketHandler boardHandler,
+                           PolicyNotificationWebSocketHandler notificationHandler,
+                           DocumentCollaborationWebSocketHandler documentCollaborationHandler) {
         this.boardHandler = boardHandler;
         this.notificationHandler = notificationHandler;
+        this.documentCollaborationHandler = documentCollaborationHandler;
     }
 
     @Override
@@ -29,6 +34,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .setAllowedOrigins(allowedOrigins);
         registry.addHandler(notificationHandler, "/ws/notifications/{username}")
                 .setAllowedOrigins(allowedOrigins);
+        registry.addHandler(documentCollaborationHandler, "/ws/documents/{procedureId}/{documentId}")
+                .setAllowedOrigins(allowedOrigins);
     }
 }
-

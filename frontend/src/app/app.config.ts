@@ -31,13 +31,27 @@ import {
   lucideUserX,
   lucideUserCheck,
   lucideX,
+  lucideMinus,
   lucideArchiveX,
   lucideArchive,
+  lucideDownload,
   lucideCopy,
   lucideRefreshCw,
+  lucideUpload,
   lucideCircleAlert,
+  lucideCircleCheck,
+  lucideCircle,
+  lucideCircleX,
+  lucideHourglass,
+  lucideMic,
   lucideWorkflow,
-  lucideUserCircle
+  lucideTriangleAlert,
+  lucideUserCircle,
+  lucideMoveDown,
+  lucideMaximize2,
+  lucideChevronUp,
+  lucideRotateCcw,
+  lucideSend
 } from '@ng-icons/lucide';
 
 export const appConfig: ApplicationConfig = {
@@ -72,13 +86,27 @@ export const appConfig: ApplicationConfig = {
       lucideUserX,
       lucideUserCheck,
       lucideX,
+      lucideMinus,
       lucideArchiveX,
       lucideArchive,
+      lucideDownload,
       lucideCopy,
       lucideRefreshCw,
+      lucideUpload,
       lucideCircleAlert,
+      lucideCircleCheck,
+      lucideCircle,
+      lucideCircleX,
+      lucideHourglass,
+      lucideMic,
       lucideWorkflow,
-      lucideUserCircle
+      lucideTriangleAlert,
+      lucideUserCircle,
+      lucideMoveDown,
+      lucideMaximize2,
+      lucideChevronUp,
+      lucideRotateCcw,
+      lucideSend
     })
   ]
 };

@@ -8,18 +8,18 @@ Generate dynamic reports from voice or text for report-oriented users.
 
 ### Requirement: Dynamic report generation
 
-The system MUST generate a report draft from a report request expressed in text or voice.
+The system MUST expose a report generator UI that accepts text or voice input and returns a reviewable report draft.
 
 #### Scenario: Text report request
 
 - GIVEN a valid text report request
-- WHEN the system processes the request
+- WHEN the user submits it in the generator UI
 - THEN it returns a report draft
 
 #### Scenario: Voice report request
 
 - GIVEN a valid audio report request
-- WHEN the system processes the request
+- WHEN the user submits it in the generator UI
 - THEN it returns a report draft derived from the request
 
 ### Requirement: Report request validation

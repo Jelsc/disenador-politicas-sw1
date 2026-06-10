@@ -1,18 +1,19 @@
 import { CommonModule } from '@angular/common';
 import { Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { NgIconComponent } from '@ng-icons/core';
 import { PolicyService } from '../../../policies/services/policy.service';
 import { UiNotificationService } from '../../../core/services/ui-notification.service';
 
 @Component({
   selector: 'app-ui-notification-center',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NgIconComponent],
   template: `
     <div class="toast-stack">
       <div class="toast" *ngFor="let toast of ui.toasts()" [class]="'toast ' + toast.type">
         <span>{{ toast.message }}</span>
-        <button type="button" (click)="ui.dismiss(toast.id)">×</button>
+        <button type="button" aria-label="Cerrar notificación" title="Cerrar notificación" (click)="ui.dismiss(toast.id)"><ng-icon name="lucideX"></ng-icon></button>
       </div>
     </div>
 
@@ -20,7 +21,7 @@ import { UiNotificationService } from '../../../core/services/ui-notification.se
       <div class="modal-card">
         <div class="modal-header">
           <h3>Invitación a política</h3>
-          <button type="button" class="close" (click)="ui.closeInvitation()">×</button>
+          <button type="button" class="close" aria-label="Cerrar invitación" title="Cerrar invitación" (click)="ui.closeInvitation()"><ng-icon name="lucideX"></ng-icon></button>
         </div>
         <p><strong>{{ invitation.invitedBy }}</strong> te invitó a editar <strong>{{ invitation.policyName }}</strong>.</p>
         <div class="actions">
@@ -34,7 +35,7 @@ import { UiNotificationService } from '../../../core/services/ui-notification.se
       <div class="modal-card">
         <div class="modal-header">
           <h3>{{ confirm.title }}</h3>
-          <button type="button" class="close" (click)="ui.closeConfirm()">×</button>
+          <button type="button" class="close" aria-label="Cerrar confirmación" title="Cerrar confirmación" (click)="ui.closeConfirm()"><ng-icon name="lucideX"></ng-icon></button>
         </div>
         <p>{{ confirm.message }}</p>
         <div class="actions">
@@ -47,7 +48,8 @@ import { UiNotificationService } from '../../../core/services/ui-notification.se
   styles: [`
     .toast-stack { position: fixed; top: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; }
     .toast { min-width: 280px; max-width: 420px; display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 10px; color: #fff; box-shadow: 0 10px 24px rgba(15,23,42,.18); }
-    .toast button { background: transparent; border: 0; color: inherit; cursor: pointer; font-size: 18px; }
+    .toast button { background: transparent; border: 0; color: inherit; cursor: pointer; font-size: 18px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; }
+    .toast button ng-icon, .close ng-icon { font-size: 16px; }
     .toast.success { background: #16a34a; }
     .toast.error { background: #dc2626; }
     .toast.info { background: #2563eb; }
@@ -55,7 +57,7 @@ import { UiNotificationService } from '../../../core/services/ui-notification.se
     .modal-card { width: min(420px, calc(100vw - 32px)); background: #fff; border-radius: 16px; padding: 22px; box-shadow: 0 20px 50px rgba(15,23,42,.28); }
     .modal-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
     .modal-card h3 { margin: 0; }
-    .close { background: transparent; border: 0; font-size: 22px; cursor: pointer; color: #64748b; }
+    .close { background: transparent; border: 0; font-size: 22px; cursor: pointer; color: #64748b; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; }
     .modal-card p { margin: 0; color: #475569; line-height: 1.45; }
     .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
     .actions button { border-radius: 10px; padding: 10px 14px; cursor: pointer; border: 1px solid #cbd5e1; }

@@ -467,17 +467,19 @@ export class DashboardComponent implements OnInit {
       allowedRoles: ['ADMIN', 'DESIGNER', 'OPERATOR'],
       submodules: [
         { label: 'Políticas', path: '/policies', icon: 'lucideFolderOpen', allowedRoles: ['ADMIN', 'DESIGNER'] },
+        { label: 'Repositorio documental', path: '/documents', icon: 'lucideFolderOpen', allowedRoles: ['ADMIN', 'DESIGNER'] },
         { label: 'Crear trámites', path: '/tramites', icon: 'lucideSettings', allowedRoles: ['ADMIN', 'OPERATOR'] }
       ]
     },
+
     {
-      id: 'design',
-      label: 'Diseño Visual',
-      icon: 'lucidePenTool',
+      id: 'reports',
+      label: 'Informes y Reportes',
+      icon: 'lucideClipboardList',
       expanded: false,
-      allowedRoles: ['ADMIN', 'DESIGNER'],
+      allowedRoles: ['ADMIN', 'AUDITOR'],
       submodules: [
-        { label: 'Formularios', path: '/forms/builder', icon: 'lucideEdit2' }
+        { label: 'Generación IA', path: '/reports', icon: 'lucidePlay' }
       ]
     },
     {

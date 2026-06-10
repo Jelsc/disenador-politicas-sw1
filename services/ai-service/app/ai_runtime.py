@@ -253,6 +253,8 @@ class DeepLearningCore:
 class AICoreRuntime:
     def __init__(self, ollama_client: OllamaClient | None = None, dl_core: DeepLearningCore | None = None, transcriber: WhisperTranscriber | None = None) -> None:
         self.ollama_client = ollama_client or OllamaClient()
+        if hasattr(self.ollama_client, "timeout_seconds"):
+            self.ollama_client.timeout_seconds = min(float(getattr(self.ollama_client, "timeout_seconds", 45.0)), 45.0)
         self.dl_core = dl_core or DeepLearningCore()
         self.transcriber = transcriber or WhisperTranscriber()
 
@@ -261,7 +263,11 @@ class AICoreRuntime:
             "Sos un asistente experto en diseño de trámites públicos, flujos operativos y formularios. "
             "Respondé en español claro y devolvé JSON estricto con esta forma: "
             '{"answer": string, "recommendations": string[], "suggestedRules": object|null}. '
-            "No inventes departamentos ni pasos fuera del contexto."
+            "No inventes departamentos ni pasos fuera del contexto. "
+            "Si proponés suggestedRules, devolvé una snapshot completa y conectada que cumpla el contrato del tablero. "
+            "No dejes TASKs sin departmentId, taskType, estimatedTime ni formulario operativo. "
+            "No dejes GATEWAYs sin evaluatedField, branches, defaultBranch ni dos salidas como mínimo. "
+            "No crees conectores hacia ids que no existan."
         )
         payload = {
             "policyName": request.get("policyName"),
@@ -269,14 +275,29 @@ class AICoreRuntime:
             "rules": request.get("rules") or {},
             "history": request.get("history") or [],
             "simulation": simulation,
+            "boardContract": request.get("boardContract") or {},
         }
-        data = self.ollama_client.chat_json(system_prompt, payload)
-        return {
-            "answer": str(data.get("answer") or "").strip(),
-            "recommendations": [str(item).strip() for item in data.get("recommendations", []) if str(item).strip()],
-            "suggestedRules": data.get("suggestedRules"),
-            "modelSource": "ollama",
-        }
+        try:
+            data = self.ollama_client.chat_json(system_prompt, payload)
+            answer = str(data.get("answer") or "").strip()
+            if not answer:
+                raise ValueError("empty assistant answer")
+            return {
+                "answer": answer,
+                "recommendations": [str(item).strip() for item in data.get("recommendations", []) if str(item).strip()],
+                "suggestedRules": data.get("suggestedRules"),
+                "modelSource": "ollama",
+            }
+        except Exception as exc:
+            return {
+                "answer": "Ollama no respondió correctamente, así que devolví una respuesta heurística segura.",
+                "recommendations": [
+                    "Reintentá la consulta cuando el modelo esté disponible.",
+                    f"Detalle técnico: {type(exc).__name__}",
+                ],
+                "suggestedRules": None,
+                "modelSource": "heuristic",
+            }
 
     def voice_intake(self, request: dict[str, Any]) -> dict[str, Any]:
         transcript = self._resolve_transcript(request.get("text"), request.get("audioBase64"))

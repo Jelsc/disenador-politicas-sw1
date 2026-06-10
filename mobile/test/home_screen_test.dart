@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:mobile/models/ai_request_draft.dart';
 import 'package:mobile/models/client_notification.dart';
 import 'package:mobile/models/procedure_ticket.dart';
 import 'package:mobile/screens/home_screen.dart';
@@ -86,7 +88,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Solicitudes IA'));
     await tester.pump();
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 200));
 
     expect(find.text('Solicitudes IA'), findsOneWidget);
   });
@@ -135,5 +137,34 @@ void main() {
     expect(find.text('Bandeja de avisos'), findsOneWidget);
     expect(find.text('Firma pendiente'), findsOneWidget);
     expect(find.text('Ver todo'), findsOneWidget);
+  });
+
+  testWidgets('muestra la tarjeta de reanudación del borrador', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      AiRequestDraftStore.storageKey: AiRequestDraft(
+        modeName: 'intake',
+        text: 'Dictado pendiente',
+        audioBase64: '',
+        useAudioPayload: false,
+        updatedAt: DateTime.parse('2026-06-07T10:15:00Z'),
+      ).toStorageValue(),
+    });
+    final api = FakeHomeApiService();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          apiService: api,
+          skipNotificationSetup: true,
+          initialProcedures: [buildProcedure()],
+          initialNotifications: [buildNotification()],
+          initialUnreadCount: 1,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(find.text('Continuar solicitud IA'), findsOneWidget);
+    expect(find.text('Reanudar'), findsOneWidget);
   });
 }

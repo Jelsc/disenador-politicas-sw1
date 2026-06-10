@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import httpx
 import os
 import sys
 from pathlib import Path
@@ -13,7 +14,7 @@ if str(ROOT) not in sys.path:
 
 from fastapi.testclient import TestClient
 
-from app.ai_runtime import AICoreRuntime
+from app.ai_runtime import AICoreRuntime, OllamaClient
 from app.main import app
 
 
@@ -86,6 +87,11 @@ class FakeAiRuntime:
         }
 
 
+class FailingAssistantRuntime:
+    def assistant(self, request: dict[str, object], simulation: dict[str, object]) -> dict[str, object]:
+        raise TimeoutError("ollama timed out")
+
+
 class FailingTranscriber:
     def transcribe_base64(self, audio_base64: str) -> str:
         raise ValueError("max() arg is an empty sequence")
@@ -99,6 +105,14 @@ class NoopDlCore:
 class NoopOllamaClient:
     def chat_json(self, system_prompt: str, user_payload: dict[str, object], *, temperature: float = 0.2) -> dict[str, object]:
         raise AssertionError("chat_json should not be called for silent audio")
+
+
+class FailingOllamaClient:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    def chat_json(self, system_prompt: str, user_payload: dict[str, object], *, temperature: float = 0.2) -> dict[str, object]:
+        raise self.exc
 
 
 class AiServiceEndpointsTest(unittest.TestCase):
@@ -230,6 +244,71 @@ class AiServiceEndpointsTest(unittest.TestCase):
         self.assertTrue(body["suggestedFields"])
         self.assertIn("motivo", [field["fieldId"] for field in body["suggestedFields"]])
         self.assertNotIn("clientName", [field["fieldId"] for field in body["suggestedFields"]])
+
+    def test_assistant_filters_invalid_suggested_rules_before_returning_them(self) -> None:
+        response = self.client.post(
+            "/assistant",
+            json={
+                "prompt": "Quiero que crees un flujo en el departamento legal.",
+                "policyName": "Política legal",
+                "rules": {"version": 1, "departments": [], "nodes": [], "connectors": []},
+                "history": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["answer"], "Modelo local listo.")
+        self.assertIsNone(body["suggestedRules"])
+
+    def test_assistant_falls_back_when_runtime_fails(self) -> None:
+        with patch("app.main.get_ai_runtime", return_value=FailingAssistantRuntime()):
+            response = self.client.post(
+                "/assistant",
+                json={
+                    "prompt": "Quiero crear un flujo nuevo para el departamento legal.",
+                    "policyName": "Política legal",
+                    "rules": {"version": 1, "departments": [], "nodes": [], "connectors": []},
+                    "history": [],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["answer"].strip())
+        self.assertTrue(body["recommendations"])
+        self.assertEqual(body["modelSource"], "heuristic")
+
+    def test_assistant_returns_heuristic_response_when_ollama_fails(self) -> None:
+        ollama_request = httpx.Request("POST", "http://ollama:11434/api/chat")
+        failures = [
+            httpx.HTTPStatusError("Server error", request=ollama_request, response=httpx.Response(500, request=ollama_request)),
+            httpx.RemoteProtocolError("Server disconnected without sending a response."),
+        ]
+
+        for failure in failures:
+            runtime = AICoreRuntime(ollama_client=FailingOllamaClient(failure))
+            with patch("app.main.get_ai_runtime", return_value=runtime):
+                response = self.client.post(
+                    "/assistant",
+                    json={
+                        "prompt": "Quiero crear un flujo nuevo para el departamento legal.",
+                        "policyName": "Política legal",
+                        "rules": {"version": 1, "departments": [], "nodes": [], "connectors": []},
+                        "history": [],
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["answer"].strip())
+        self.assertTrue(body["recommendations"])
+        self.assertEqual(body["modelSource"], "heuristic")
+
+    def test_ai_runtime_caps_ollama_timeout_for_responsive_assistant_fallbacks(self) -> None:
+        runtime = AICoreRuntime(ollama_client=OllamaClient(timeout_seconds=300))
+
+        self.assertLessEqual(runtime.ollama_client.timeout_seconds, 45.0)
 
     def test_voice_intake_uses_tensorflow_contract_when_enabled(self) -> None:
         with patch.dict(os.environ, {"AI_CORE_PROVIDER": "tensorflow", "AI_CORE_FORCE_MOCK": "true"}, clear=False):
