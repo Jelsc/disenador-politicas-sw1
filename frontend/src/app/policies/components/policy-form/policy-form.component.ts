@@ -1442,8 +1442,8 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
   openDocumentRepository(): void {
     const id = this.policyId();
     if (!id) return;
-    this.router.navigate(['/policies', id, 'documents'], {
-      queryParams: { from: this.isReadOnly() ? 'view' : 'edit' }
+    this.router.navigate(['/policies', id, 'documents', 'config'], {
+      queryParamsHandling: 'preserve'
     });
   }
 

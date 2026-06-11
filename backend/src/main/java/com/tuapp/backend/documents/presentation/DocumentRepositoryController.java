@@ -80,6 +80,15 @@ public class DocumentRepositoryController {
                 .body(resource);
     }
 
+    @DeleteMapping("/{documentId}/versions/{version}")
+    public ResponseEntity<Void> deleteVersion(@PathVariable String procedureId,
+                                              @PathVariable String documentId,
+                                              @PathVariable Integer version,
+                                              Authentication authentication) {
+        service.deleteDocumentVersion(procedureId, documentId, version, role(authentication), username(authentication), isAdmin(authentication));
+        return ResponseEntity.noContent().build();
+    }
+
     private DocumentVersionResponse toResponse(String procedureId, DocumentVersionDocument document) {
         String downloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
                 .path("/api/procedures/")

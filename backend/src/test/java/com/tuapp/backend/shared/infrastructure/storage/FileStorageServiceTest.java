@@ -90,5 +90,11 @@ class FileStorageServiceTest {
         public java.util.Optional<String> contentType(String key) {
             return java.util.Optional.ofNullable(contentTypeByKey.get(key));
         }
+
+        @Override
+        public void delete(String key) {
+            contentByKey.remove(key);
+            contentTypeByKey.remove(key);
+        }
     }
 }

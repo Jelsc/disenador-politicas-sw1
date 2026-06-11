@@ -109,6 +109,24 @@ public class DocumentRepositoryService {
                 .orElseThrow(() -> new IllegalArgumentException("No existe la versión solicitada del documento."));
     }
 
+    public void deleteDocumentVersion(String procedureId, String documentId, Integer version, String role, String username, boolean admin) {
+        DocumentRepositorySettingsDocument settings = getSettings(procedureId);
+        ensureCanWrite(settings, role, admin);
+        
+        DocumentVersionDocument document = versionRepository.findByProcedureIdAndDocumentIdAndVersion(procedureId, documentId, version)
+                .orElseThrow(() -> new IllegalArgumentException("No existe la versión solicitada del documento."));
+        
+        if (!admin && !username.equals(document.getCreatedBy())) {
+            throw new AccessDeniedException("No tenés permiso para eliminar este documento. Solo el autor o un administrador pueden borrarlo.");
+        }
+        
+        if (document.getStorageKey() != null) {
+            fileStorageService.deleteFile(document.getStorageKey());
+        }
+        
+        versionRepository.delete(document);
+    }
+
     private void ensureCanRead(DocumentRepositorySettingsDocument settings, String role, boolean admin) {
         if (admin) return;
         if (settings.getAllowedRoles() == null || settings.getAllowedRoles().isEmpty()) return;

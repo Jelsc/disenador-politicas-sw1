@@ -88,4 +88,13 @@ public class FileStorageService {
         }
         return contentTypeFallback;
     }
+
+    public void deleteFile(String fileName) {
+        try {
+            fileObjectGateway.delete(fileName);
+        } catch (Exception e) {
+            // Log warning or throw, depending on if we want to fail hard
+            throw new RuntimeException("Could not delete file " + fileName + ". Please try again!", e);
+        }
+    }
 }

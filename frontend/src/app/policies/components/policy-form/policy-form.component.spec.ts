@@ -202,10 +202,9 @@ describe('PolicyFormComponent', () => {
 
   it('opens the document repository for the current policy', () => {
     component.policyId.set('policy-1');
-
     component.openDocumentRepository();
-
-    expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/policies', 'policy-1', 'documents']);
+    
+    expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/policies', 'policy-1', 'documents', 'config'], expect.anything());
   });
 
   it('keeps repository navigation disabled until the policy has an id', () => {

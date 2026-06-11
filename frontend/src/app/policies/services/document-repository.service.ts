@@ -75,4 +75,8 @@ export class DocumentRepositoryService {
   buildDownloadUrl(procedureId: string, documentId: string, version: number): string {
     return `${this.apiUrl}/${procedureId}/documents/${documentId}/versions/${version}`;
   }
+
+  deleteVersion(procedureId: string, documentId: string, version: number): Observable<void> {
+    return this.http.delete<void>(`${this.apiUrl}/${procedureId}/documents/${documentId}/versions/${version}`);
+  }
 }

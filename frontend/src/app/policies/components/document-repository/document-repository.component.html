@@ -11,9 +11,9 @@
           <span class="status-pill" [class.readonly]="readOnly()">{{ accessStateLabel() }}</span>
         </div>
         <div class="state-line">
-          <ng-icon name="lucideUsers" *ngIf="repositoryScope() === 'procedure'"></ng-icon>
-          <span *ngIf="repositoryScope() === 'procedure'" [title]="presenceStateDetail()">{{ presenceStateLabel() }}</span>
-          <span *ngIf="repositoryScope() === 'procedure'">·</span>
+          <ng-icon name="lucideUsers" *ngIf="viewMode() !== 'config'"></ng-icon>
+          <span *ngIf="viewMode() !== 'config'" [title]="presenceStateDetail()">{{ presenceStateLabel() }}</span>
+          <span *ngIf="viewMode() !== 'config'">·</span>
           <span>{{ repositorySubtitle() }}</span>
         </div>
       </div>
@@ -22,7 +22,7 @@
     <div class="header-meta">
       <div class="meta-chip">
         <ng-icon name="lucideShield"></ng-icon>
-        <span>{{ repositoryScope() === 'policy' ? 'Política' : 'Trámite' }}</span>
+        <span>{{ viewMode() === 'procedure-docs' ? 'Trámite' : 'Política' }}</span>
       </div>
       <div class="meta-chip soft">
         <ng-icon name="lucideUserCircle"></ng-icon>
@@ -31,8 +31,8 @@
     </div>
   </header>
 
-  <div class="repository-grid" [class.single-col]="repositoryScope() === 'policy'">
-    <section class="panel settings-panel">
+  <div class="repository-grid" [class.single-col]="viewMode() === 'config'">
+    <section class="panel settings-panel" *ngIf="viewMode() === 'config'">
       <div class="panel-header">
         <div>
           <h2>Configuración y acceso</h2>
@@ -89,8 +89,10 @@
           <p>Tu estado: <strong>{{ summary.accessMode === 'Editing enabled' ? 'Edición permitida' : summary.accessMode === 'Read-only' ? 'Solo lectura' : 'Edición bloqueada por permisos' }}</strong></p>
         </div>
       </form>
+      <div class="alert" *ngIf="errorMessage() && viewMode() === 'config'">{{ errorMessage() }}</div>
+    </section>
 
-      <div class="upload-panel" *ngIf="repositoryScope() === 'procedure'">
+    <section class="panel upload-panel" *ngIf="viewMode() !== 'config'">
         <div class="panel-header compact">
           <div>
             <h2>Flujo de carga</h2>
@@ -113,12 +115,10 @@
             <input type="file" (change)="selectUploadFile($event)" [disabled]="!canUpload()" />
           </label>
         </div>
-      </div>
-
-      <div class="alert" *ngIf="errorMessage()">{{ errorMessage() }}</div>
+        <div class="alert" *ngIf="errorMessage() && viewMode() !== 'config'">{{ errorMessage() }}</div>
     </section>
 
-    <section class="panel browser-panel" *ngIf="repositoryScope() === 'procedure'">
+    <section class="panel browser-panel" *ngIf="viewMode() !== 'config'">
       <div class="panel-header">
         <div>
           <h2>Documentos y versiones</h2>
@@ -131,12 +131,12 @@
       <div class="empty-state" *ngIf="!loading() && repositoryDocuments().length === 0">
         <ng-icon name="lucideFiles"></ng-icon>
         <h3>El repositorio está vacío</h3>
-        <p>Aún no se han subido documentos a esta {{ repositoryScope() === 'policy' ? 'política' : 'trámite' }}.</p>
+        <p>Aún no se han subido documentos a {{ viewMode() === 'procedure-docs' ? 'este trámite' : 'esta política' }}.</p>
       </div>
 
       <div class="document-list" *ngIf="!loading() && repositoryDocuments().length > 0">
-        <article class="document-card" *ngFor="let doc of repositoryDocuments()" 
-                 [class.selected]="selectedDocumentId() === doc.documentId"
+        <article class="doc-card" *ngFor="let doc of repositoryDocuments()" 
+                 [class.active]="selectedDocumentId() === doc.documentId"
                  (click)="openDocumentHistory(doc)">
           <div class="doc-icon">
             <ng-icon name="lucideFileText"></ng-icon>
@@ -152,6 +152,9 @@
             <a [href]="versionDownloadUrl(doc)" target="_blank" class="download-btn" (click)="$event.stopPropagation()" title="Descargar versión actual">
               <ng-icon name="lucideDownload"></ng-icon>
             </a>
+            <button class="delete-btn" *ngIf="currentRole() === 'ADMIN' || currentUsername() === doc.createdBy" (click)="deleteDocument(doc.documentId, doc.version); $event.stopPropagation()" title="Eliminar documento">
+              <ng-icon name="lucideTrash2"></ng-icon>
+            </button>
           </div>
         </article>
       </div>
@@ -173,6 +176,9 @@
               <ng-icon name="lucideDownload"></ng-icon>
               Descargar
             </a>
+            <button class="delete-link" *ngIf="currentRole() === 'ADMIN' || currentUsername() === version.createdBy" (click)="deleteDocument(version.documentId, version.version)" title="Eliminar versión">
+              <ng-icon name="lucideTrash2"></ng-icon>
+            </button>
           </div>
         </div>
       </div>

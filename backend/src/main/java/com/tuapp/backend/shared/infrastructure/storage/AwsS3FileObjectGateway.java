@@ -56,4 +56,13 @@ public class AwsS3FileObjectGateway implements FileObjectGateway {
             return Optional.empty();
         }
     }
+
+    @Override
+    public void delete(String key) {
+        try {
+            s3Client.deleteObject(software.amazon.awssdk.services.s3.model.DeleteObjectRequest.builder().bucket(bucket).key(key).build());
+        } catch (Exception exception) {
+            throw new RuntimeException("Could not delete file " + key, exception);
+        }
+    }
 }

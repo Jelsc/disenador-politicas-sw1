@@ -8,4 +8,6 @@ public interface FileObjectGateway {
     byte[] get(String key);
 
     Optional<String> contentType(String key);
+
+    void delete(String key);
 }

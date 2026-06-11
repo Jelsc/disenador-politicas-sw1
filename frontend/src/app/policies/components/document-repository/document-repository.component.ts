@@ -28,6 +28,7 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
 
   readonly repositoryId = signal<string | null>(null);
   readonly repositoryScope = signal<'policy' | 'procedure'>('policy');
+  readonly viewMode = signal<'config' | 'policy-docs' | 'procedure-docs'>('config');
   readonly readOnly = signal(false);
   readonly loading = signal(false);
   readonly saving = signal(false);
@@ -45,10 +46,22 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
   readonly availableDepartments = signal<Department[]>([]);
 
   readonly accessStateLabel = computed(() => this.readOnly() ? 'Solo lectura' : 'Configuración editable');
-  readonly repositoryTitle = computed(() => this.repositoryScope() === 'policy' ? 'Repositorio documental de la política' : 'Repositorio documental del trámite');
-  readonly repositorySubtitle = computed(() => this.repositoryScope() === 'policy'
-    ? 'Ajustá permisos, formatos permitidos y límites de carga antes de publicar reglas.'
-    : 'Consultá documentos, versiones y trazas sin modificar la configuración operativa.');
+  readonly repositoryTitle = computed(() => {
+    switch (this.viewMode()) {
+      case 'config': return 'Configuración del Repositorio de la Política';
+      case 'policy-docs': return 'Archivos Globales de la Política';
+      case 'procedure-docs': return 'Expediente Digital del Trámite';
+      default: return 'Repositorio Documental';
+    }
+  });
+  readonly repositorySubtitle = computed(() => {
+    switch (this.viewMode()) {
+      case 'config': return 'Ajustá departamentos permitidos, formatos y límites de carga.';
+      case 'policy-docs': return 'Subí y visualizá plantillas, normativas y archivos globales compartidos.';
+      case 'procedure-docs': return 'Consultá y adjuntá documentos, versiones y evidencias de este caso específico.';
+      default: return '';
+    }
+  });
   readonly permissionSummary = computed(() => {
     const settings = this.repositorySettings();
     const depts = this.availableDepartments();
@@ -84,7 +97,7 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
     return `${selectedDocumentId} · ${versions.length} version${versions.length === 1 ? '' : 's'}`;
   });
   readonly presenceStateLabel = computed(() => {
-    if (this.repositoryScope() !== 'procedure') {
+    if (this.viewMode() === 'config') {
       return 'Presence is not enabled here';
     }
 
@@ -94,8 +107,8 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
       : `${observerCount} observer${observerCount === 1 ? '' : 's'}`;
   });
   readonly presenceStateDetail = computed(() => {
-    if (this.repositoryScope() !== 'procedure') {
-      return 'Document presence is reserved for the procedure repository route.';
+    if (this.viewMode() === 'config') {
+      return 'Document presence is reserved for document repositories.';
     }
 
     const viewers = this.collaborationService.viewers();
@@ -116,6 +129,10 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
   canUpload(): boolean {
     const settings = this.repositorySettings();
     const userDeptIds = this.currentDepartmentIds();
+
+    if (this.currentRole() === 'ADMIN') {
+      return true;
+    }
 
     if (this.readOnly() || !settings) {
       return false;
@@ -144,6 +161,7 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
     });
 
     this.repositoryScope.set(this.route.snapshot.data['repositoryScope'] === 'procedure' ? 'procedure' : 'policy');
+    this.viewMode.set(this.route.snapshot.data['viewMode'] || 'config');
     this.readOnly.set(this.route.snapshot.data['mode'] === 'view');
     this.syncFormAccess();
 
@@ -160,6 +178,7 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
   }
 
   backLink(): string[] {
+    if (this.viewMode() === 'policy-docs') return ['/documents'];
     const id = this.repositoryId();
     if (this.repositoryScope() === 'procedure') return ['/tramites'];
     if (!id) return ['/policies'];
@@ -242,10 +261,37 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
     });
   }
 
-  versionDownloadUrl(version: DocumentRepositoryVersion): string {
+  deleteDocument(documentId: string, version: number): void {
+    if (!confirm('¿Estás seguro de que deseas eliminar esta versión del documento? Esta acción no se puede deshacer.')) {
+      return;
+    }
+    
+    const id = this.repositoryId();
+    if (!id) return;
+    
+    this.repositoryService.deleteVersion(id, documentId, version).subscribe({
+      next: () => {
+        // Refresh documents and versions
+        this.loadRepository(id);
+        if (this.selectedDocumentId() === documentId) {
+          this.repositoryService.listVersions(id, documentId).subscribe({
+            next: versions => this.documentVersions.set(versions),
+            error: () => this.documentVersions.set([])
+          });
+        }
+      },
+      error: () => this.errorMessage.set('Error al eliminar el documento.')
+    });
+  }
+
+  buildDownloadUrl(documentId: string, version: number): string {
     const id = this.repositoryId();
     if (!id) return '#';
-    return version.downloadUri || this.repositoryService.buildDownloadUrl(id, version.documentId, version.version);
+    return this.repositoryService.buildDownloadUrl(id, documentId, version);
+  }
+
+  versionDownloadUrl(version: DocumentRepositoryVersion): string {
+    return this.buildDownloadUrl(version.documentId, version.version);
   }
 
   reloadRepository(preferredDocumentId?: string): void {

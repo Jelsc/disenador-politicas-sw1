@@ -46,16 +46,22 @@ export const routes: Routes = [
         canActivate: [roleGuard(['ADMIN', 'DESIGNER'])]
       },
       {
+        path: 'policies/:id/documents/config',
+        loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
+        canActivate: [roleGuard(['ADMIN', 'DESIGNER'])],
+        data: { repositoryScope: 'policy', viewMode: 'config' }
+      },
+      {
         path: 'policies/:id/documents',
         loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
         canActivate: [roleGuard(['ADMIN', 'DESIGNER'])],
-        data: { repositoryScope: 'policy' }
+        data: { repositoryScope: 'policy', viewMode: 'policy-docs' }
       },
       {
         path: 'tramites/:id/documents',
         loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
         canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
-        data: { repositoryScope: 'procedure', mode: 'view' }
+        data: { repositoryScope: 'procedure', viewMode: 'procedure-docs' }
       },
       {
         path: 'documents',
