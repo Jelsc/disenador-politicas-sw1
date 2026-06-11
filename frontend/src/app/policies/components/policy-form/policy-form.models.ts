@@ -1,6 +1,6 @@
 export type BoardNodeType = 'START' | 'TASK' | 'GATEWAY' | 'PARALLEL' | 'JOIN' | 'END' | 'OBJECT' | 'NOTE' | 'REGION';
 export type ConnectorKind = 'CONTROL_FLOW' | 'OBJECT_FLOW';
-export type TaskFormFieldType = 'SHORT_TEXT' | 'LONG_TEXT' | 'NUMBER' | 'DATE' | 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'CHECKBOX' | 'FILE' | 'RESULT' | 'SIGNATURE';
+export type TaskFormFieldType = 'SHORT_TEXT' | 'LONG_TEXT' | 'NUMBER' | 'DATE' | 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'CHECKBOX' | 'FILE' | 'RESULT' | 'SIGNATURE' | 'TABLE';
 
 export interface TaskFormField {
   id: string;
@@ -29,6 +29,8 @@ export interface TaskFormField {
   requiresCommentOnObserve?: boolean;
   signatureMessage?: string;
   signatureDeadlineHours?: number;
+  tableColumns?: string[];
+  matrixRows?: string[];
 }
 
 export interface TaskFormDefinition {

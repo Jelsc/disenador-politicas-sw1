@@ -190,6 +190,25 @@ import { Policy } from '../../../policies/models/policy.model';
             <button class="btn" *ngIf="field.type === 'SIGNATURE'" (click)="setFieldValue(task.id, field.id, 'FIRMA_TOUCH_SOLICITADA')">Solicitar firma al cliente</button>
             <small class="muted" *ngIf="field.type === 'SIGNATURE' && field.signatureMessage">Mensaje al cliente: {{ field.signatureMessage }}</small>
             <small class="muted" *ngIf="field.type === 'FILE' && fieldValue(task.id, field.id)">Archivo: {{ fileLabel(task.id, field.id) }} <a *ngIf="fieldValue(task.id, field.id)?.url" [href]="fieldValue(task.id, field.id).url" target="_blank" class="download-link">Descargar</a></small>
+
+            <div class="table-container" style="overflow-x: auto" *ngIf="field.type === 'TABLE'">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th *ngFor="let col of field.tableColumns || []">{{ col }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr *ngFor="let rowName of field.matrixRows || []; let r = index">
+                    <td class="row-header" style="font-weight: bold; background: #f9f9f9;">{{ rowName }}</td>
+                    <td *ngFor="let col of field.tableColumns || []; let c = index">
+                      <input type="text" [ngModel]="tableRows(task.id, field.id)[r]?.[col]" (ngModelChange)="updateTableCell(task.id, field.id, r, col, $event)" />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <small class="muted" *ngIf="field.type === 'SIGNATURE' && fieldValue(task.id, field.id)">Firma registrada/solicitada.</small>
           </div>
           </div>
@@ -468,6 +487,19 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
   setFieldValue(taskId: string, fieldId: string, value: any): void {
     this.taskFormValues[taskId] = this.taskFormValues[taskId] || {};
     this.taskFormValues[taskId][fieldId] = value;
+  }
+
+  tableRows(taskId: string, fieldId: string): any[] {
+    const val = this.fieldValue(taskId, fieldId);
+    if (Array.isArray(val)) return val;
+    return [];
+  }
+
+  updateTableCell(taskId: string, fieldId: string, rowIndex: number, col: string, value: any): void {
+    const rows = [...this.tableRows(taskId, fieldId)];
+    if (!rows[rowIndex]) rows[rowIndex] = {};
+    rows[rowIndex] = { ...rows[rowIndex], [col]: value };
+    this.setFieldValue(taskId, fieldId, rows);
   }
 
   setFileValue(taskId: string, field: OperationTaskField, event: Event, task: any): void {

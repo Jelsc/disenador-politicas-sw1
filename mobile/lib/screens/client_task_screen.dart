@@ -291,6 +291,70 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
       );
     }
 
+    if (field.type.toUpperCase() == 'TABLE') {
+      final columns = field.tableColumns != null && field.tableColumns!.isNotEmpty
+          ? field.tableColumns!
+          : ['Dato'];
+      final fixedRows = field.matrixRows != null && field.matrixRows!.isNotEmpty
+          ? field.matrixRows!
+          : ['Fila 1'];
+
+      return StatefulBuilder(
+        builder: (context, setStateLocal) {
+          if (_formValues[field.id] == null) {
+            _formValues[field.id] = fixedRows.map((r) => <String, dynamic>{columns[0]: ''}).toList();
+          }
+
+          final List<dynamic> rows = _formValues[field.id] as List<dynamic>;
+
+          return Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE3D8C5)),
+            ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columns: [
+                      const DataColumn(label: Text('')),
+                      ...columns.map((col) => DataColumn(label: Text(col, style: const TextStyle(fontWeight: FontWeight.bold)))),
+                    ],
+                    rows: rows.asMap().entries.map((entry) {
+                      final i = entry.key;
+                      final rowData = entry.value as Map<String, dynamic>;
+                      return DataRow(
+                        cells: [
+                          DataCell(Text(fixedRows[i], style: const TextStyle(fontWeight: FontWeight.bold))),
+                          ...columns.map((colName) {
+                            return DataCell(
+                              TextFormField(
+                                initialValue: rowData[colName]?.toString(),
+                                onChanged: (val) {
+                                  rowData[colName] = val;
+                                  _formValues[field.id] = rows;
+                                },
+                                decoration: const InputDecoration(border: InputBorder.none, isDense: true),
+                              ),
+                            );
+                          }),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
     return TextFormField(
       initialValue: _formValues[field.id]?.toString(),
       onChanged: (val) {

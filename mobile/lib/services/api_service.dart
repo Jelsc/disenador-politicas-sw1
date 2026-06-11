@@ -7,10 +7,10 @@ import '../models/procedure_ticket.dart';
 class ApiService {
   // Elegí MANUALMENTE la URL que quieras usar.
   // LOCAL Android emulator (através de Nginx en puerto 80):
-  static const String baseUrl = 'http://192.168.0.3/api';
+  //static const String baseUrl = 'http://192.168.0.3/api';
 
   // NUBE / PRODUCCIÓN:
-  //static const String baseUrl = 'https://api-primerpacialsw.duckdns.org/api';
+  static const String baseUrl = 'https://api-primerpacialsw.duckdns.org/api';
 
   Future<Map<String, dynamic>> register({
     required String username,
@@ -220,7 +220,8 @@ class ApiService {
         },
         body: json.encode({
           if (message != null && message.isNotEmpty) 'text': message,
-          if (audioBase64 != null && audioBase64.isNotEmpty) 'audioBase64': audioBase64,
+          if (audioBase64 != null && audioBase64.isNotEmpty)
+            'audioBase64': audioBase64,
         }),
       );
 
@@ -426,7 +427,11 @@ class ApiService {
     }
   }
 
-  Future<bool> completeProcedureTask(String token, String taskId, Map<String, dynamic> formValues) async {
+  Future<bool> completeProcedureTask(
+    String token,
+    String taskId,
+    Map<String, dynamic> formValues,
+  ) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/operations/tasks/$taskId/complete'),
@@ -453,7 +458,9 @@ class ApiService {
     try {
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('$baseUrl/operations/procedures/$procedureId/tasks/$taskId/files?fieldId=$fieldId'),
+        Uri.parse(
+          '$baseUrl/operations/procedures/$procedureId/tasks/$taskId/files?fieldId=$fieldId',
+        ),
       );
       request.headers['Authorization'] = 'Bearer $token';
       request.files.add(

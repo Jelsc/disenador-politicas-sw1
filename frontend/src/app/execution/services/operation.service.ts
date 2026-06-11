@@ -55,7 +55,7 @@ export interface OperatorContext {
 
 export interface OperationTaskField {
   id: string;
-  type: 'SHORT_TEXT' | 'LONG_TEXT' | 'NUMBER' | 'DATE' | 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'CHECKBOX' | 'FILE' | 'RESULT' | 'SIGNATURE';
+  type: 'SHORT_TEXT' | 'LONG_TEXT' | 'NUMBER' | 'DATE' | 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'CHECKBOX' | 'FILE' | 'RESULT' | 'SIGNATURE' | 'TABLE';
   label: string;
   required?: boolean;
   options?: string[];
@@ -69,6 +69,8 @@ export interface OperationTaskField {
   maxFileSizeMb?: number;
   signatureMessage?: string;
   signatureDeadlineHours?: number;
+  tableColumns?: string[];
+  matrixRows?: string[];
 }
 
 export interface OperationLearningEvent {

@@ -82,7 +82,8 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
     { type: 'CHECKBOX', label: 'Checkbox', help: 'Confirmación simple' },
     { type: 'FILE', label: 'Archivo', help: 'Documentos adjuntos' },
     { type: 'RESULT', label: 'Resultado / Dictamen', help: 'Aprobado, Observado, Rechazado' },
-    { type: 'SIGNATURE', label: 'Firma cliente', help: 'Solicitud puntual de firma touch en mobile' }
+    { type: 'SIGNATURE', label: 'Firma cliente', help: 'Solicitud puntual de firma touch en mobile' },
+    { type: 'TABLE', label: 'Tabla / Matriz', help: 'Cuadrícula de datos dinámica o estática' }
   ];
 
   readonly umlNodePalette: UmlNodePaletteItem[] = [
@@ -619,6 +620,24 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
     if (!node) return;
     const fields = this.taskFormFields(node).map(field => field.id === fieldId ? { ...field, ...changes } : field);
     this.updateTaskFormFields(fields);
+  }
+
+  initializeTableDimensions(field: TaskFormField, rowsCount: number, colsCount: number): void {
+    const tableColumns = Array(colsCount).fill('').map((_, i) => field.tableColumns?.[i] || `Columna ${i + 1}`);
+    const matrixRows = Array(rowsCount).fill('').map((_, i) => field.matrixRows?.[i] || `Fila ${i + 1}`);
+    this.updateTaskFormField(field.id, { tableColumns, matrixRows });
+  }
+
+  updateTableColumnName(field: TaskFormField, colIndex: number, name: string): void {
+    const tableColumns = [...(field.tableColumns || [])];
+    tableColumns[colIndex] = name;
+    this.updateTaskFormField(field.id, { tableColumns });
+  }
+
+  updateTableRowName(field: TaskFormField, rowIndex: number, name: string): void {
+    const matrixRows = [...(field.matrixRows || [])];
+    matrixRows[rowIndex] = name;
+    this.updateTaskFormField(field.id, { matrixRows });
   }
 
   duplicateTaskFormField(fieldId: string, event: Event): void {

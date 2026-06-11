@@ -100,6 +100,8 @@ class ClientTaskField {
   final String label;
   final bool required;
   final String? placeholder;
+  final List<String>? tableColumns;
+  final List<String>? matrixRows;
 
   ClientTaskField({
     required this.id,
@@ -107,6 +109,8 @@ class ClientTaskField {
     required this.label,
     required this.required,
     this.placeholder,
+    this.tableColumns,
+    this.matrixRows,
   });
 
   factory ClientTaskField.fromJson(Map<String, dynamic> json) {
@@ -116,6 +120,8 @@ class ClientTaskField {
       label: json['label'] ?? '',
       required: json['required'] ?? false,
       placeholder: json['placeholder'],
+      tableColumns: json['tableColumns'] != null ? List<String>.from(json['tableColumns']) : null,
+      matrixRows: json['matrixRows'] != null ? List<String>.from(json['matrixRows']) : null,
     );
   }
 }
