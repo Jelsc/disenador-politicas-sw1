@@ -445,7 +445,7 @@ export class DashboardComponent implements OnInit {
       icon: 'lucideLayoutDashboard',
       path: '/dashboard',
       expanded: false,
-      allowedRoles: ['ADMIN', 'DESIGNER', 'OPERATOR']
+      allowedRoles: ['ADMIN', 'DESIGNER', 'OPERATOR', 'AUDITOR']
     },
 {
         id: 'admin',

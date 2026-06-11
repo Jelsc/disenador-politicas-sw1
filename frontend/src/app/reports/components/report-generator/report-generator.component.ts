@@ -45,15 +45,82 @@ export class ReportGeneratorComponent implements OnInit, AfterViewChecked {
   readonly voicePromptTitle = computed(() => this.voiceListening() ? 'Detener escucha' : 'Dictar por voz (Español, LatAm)');
   readonly voicePromptIcon = computed(() => this.voiceListening() ? 'lucideSquare' : 'lucideMic');
 
-  toggleVoicePrompt() {
-    this.voiceListening.set(!this.voiceListening());
-    if (this.voiceListening()) {
-      setTimeout(() => {
-        this.voiceListening.set(false);
-        if (!this.reportPrompt().trim()) {
-          this.reportPrompt.set('Me gustaría generar un reporte sobre esta política evaluando riesgos...');
+  private recognition: any;
+  private finalTranscriptBase = '';
+
+  constructor() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      this.recognition = new SpeechRecognition();
+      this.recognition.lang = 'es-LA';
+      this.recognition.continuous = true;
+      this.recognition.interimResults = true;
+
+      this.recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalSegment = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalSegment += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
         }
-      }, 3000);
+        
+        if (finalSegment) {
+          this.finalTranscriptBase += finalSegment;
+        }
+
+        this.reportPrompt.set((this.finalTranscriptBase + interimTranscript).trimStart());
+        this.syncActiveComposerTextarea();
+      };
+
+      this.recognition.onerror = (event: any) => {
+        console.error('Speech recognition error', event.error);
+        this.stopListening();
+      };
+      
+      this.recognition.onend = () => {
+        if (this.voiceListening()) {
+            this.stopListening();
+        }
+      };
+    }
+  }
+
+  toggleVoicePrompt() {
+    if (this.voiceListening()) {
+      this.stopListening();
+    } else {
+      this.startListening();
+    }
+  }
+
+  private startListening() {
+    if (!this.recognition) {
+        alert('El reconocimiento de voz no está soportado en este navegador. Usa Chrome o Edge.');
+        return;
+    }
+    this.voiceListening.set(true);
+    // Keep existing text as base, append space if it doesn't end with one
+    this.finalTranscriptBase = this.reportPrompt();
+    if (this.finalTranscriptBase && !this.finalTranscriptBase.endsWith(' ')) {
+        this.finalTranscriptBase += ' ';
+    }
+    try {
+        this.recognition.start();
+    } catch (e) {
+        console.error(e);
+    }
+  }
+
+  private stopListening() {
+    this.voiceListening.set(false);
+    if (this.recognition) {
+        try {
+            this.recognition.stop();
+        } catch (e) {}
     }
   }
 

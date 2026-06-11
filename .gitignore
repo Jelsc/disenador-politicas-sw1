@@ -1,19 +1,8 @@
 ﻿.atl/
 
-# Environment Variables
+# Environment Variables (secrets - never commit)
 .env
-.env.*
 
 # Firebase Secrets
 backend/src/main/resources/firebase-adminsdk.json
 mobile/android/app/google-services.json
-
-.env
-
-
-.env
-
-
-
-.env
-

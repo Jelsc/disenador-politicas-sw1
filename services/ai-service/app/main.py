@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from app.ai_runtime import get_ai_runtime
+from app.ai_runtime import AzureOpenAIClient, get_ai_runtime
 from app.tensorflow_core import get_tensorflow_core
 
 
@@ -27,6 +27,20 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct")
 OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "45"))
 AI_NEURAL_MAX_RULE_NODES = int(os.getenv("AI_NEURAL_MAX_RULE_NODES", "80"))
+
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "").strip()
+_AZURE_CLIENT: AzureOpenAIClient | None = None
+
+def _get_azure_client() -> AzureOpenAIClient | None:
+    global _AZURE_CLIENT
+    if _AZURE_CLIENT is None and AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_KEY:
+        _AZURE_CLIENT = AzureOpenAIClient(
+            endpoint=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_KEY,
+        )
+    return _AZURE_CLIENT
+
 GENERIC_MATCH_TOKENS = {
     "flujo", "flujos", "tarea", "tareas", "paso", "pasos", "revision", "revisiones",
     "aprobacion", "aprobaciones", "paralelo", "paralela", "simultaneo", "simultanea",
@@ -58,6 +72,7 @@ class PolicyDesignRequest(BaseModel):
 class AssistantRequest(PolicyDesignRequest):
     prompt: str
     history: list[dict[str, str]] = Field(default_factory=list)
+    availableDepartments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CheckResult(BaseModel):
@@ -305,7 +320,7 @@ def simulate_design(request: PolicyDesignRequest) -> SimulationReport:
 def assistant(request: AssistantRequest) -> AssistantResponse:
     rules = normalize_rules(request.rules)
     simulation = simulate_design(PolicyDesignRequest(policyName=request.policyName, rules=rules))
-    runtime = get_ai_runtime()
+    runtime = get_ai_runtime(azure_client=_get_azure_client())
     try:
         result = runtime.assistant(
             {
@@ -313,9 +328,10 @@ def assistant(request: AssistantRequest) -> AssistantResponse:
                 "prompt": request.prompt,
                 "rules": request.rules,
                 "history": request.history,
-                "boardContract": assistant_board_contract(request.rules, simulation),
+                "availableDepartments": request.availableDepartments,
+                "boardContract": assistant_board_contract(rules, simulation),
             },
-            simulation.dict(),
+            simulation.model_dump() if hasattr(simulation, "model_dump") else simulation.dict(),
         )
         runtime_response = assistant_response_from_runtime(result, request)
         if runtime_response:
@@ -351,10 +367,24 @@ def assistant_response_from_runtime(result: Any, request: AssistantRequest) -> A
     if model_source not in {"ollama", "heuristic"}:
         model_source = "ollama"
 
+    suggested_rules = sanitize_suggested_rules(result.get("suggestedRules"), request.policyName, request.rules)
+    
+    # If Ollama completely failed to generate the structure (empty board) but the user asked for one, trigger heuristic fallback
+    if wants_flow_generation(request.prompt) and (not suggested_rules or not suggested_rules.get("nodes")):
+        # By returning None here, it forces the caller to use assistant_fallback_response which now contains the from-scratch heuristic
+        return None
+
+    # FORCE correct Y coordinates for all nodes based on their assigned department lane
+    if suggested_rules and suggested_rules.get("nodes"):
+        for node in suggested_rules["nodes"]:
+            department_id = node.get("departmentId")
+            if department_id:
+                node["y"] = lane_y_for_department(suggested_rules, department_id)
+        
     return AssistantResponse(
         answer=answer,
         recommendations=clean_recommendations[:8],
-        suggestedRules=sanitize_suggested_rules(result.get("suggestedRules"), request.policyName),
+        suggestedRules=suggested_rules,
         modelSource=model_source,
     )
 
@@ -365,6 +395,11 @@ def assistant_fallback_response(request: AssistantRequest, rules: dict[str, Any]
         response = collaborate_existing_flow(request, prompt, simulation)
         if response.suggestedRules is not None:
             response.suggestedRules = sanitize_suggested_rules(response.suggestedRules, request.policyName)
+            
+            for node in response.suggestedRules.get("nodes") or []:
+                department_id = node.get("departmentId")
+                if department_id:
+                    node["y"] = lane_y_for_department(response.suggestedRules, department_id)
         response.modelSource = "heuristic"
         return response
 
@@ -474,15 +509,24 @@ def assistant_board_contract(rules: dict[str, Any], simulation: SimulationReport
     }
 
 
-def sanitize_suggested_rules(candidate: Any, policy_name: str | None) -> dict[str, Any] | None:
+def sanitize_suggested_rules(candidate: Any, policy_name: str | None, original_rules: dict[str, Any] | None = None) -> dict[str, Any] | None:
     if not isinstance(candidate, dict):
         return None
 
     nodes = candidate.get("nodes")
+    if not isinstance(nodes, list):
+        nodes = []
+        
     connectors = candidate.get("connectors")
+    if not isinstance(connectors, list):
+        connectors = []
+        
+    # Allow the AI to omit departments, and fallback to the original ones
     departments = candidate.get("departments")
-    if not isinstance(nodes, list) or not isinstance(connectors, list) or not isinstance(departments, list):
-        return None
+    if departments is None and original_rules is not None:
+        departments = original_rules.get("departments", [])
+    elif not isinstance(departments, list):
+        departments = []
 
     normalized_candidate: dict[str, Any] = {
         "version": candidate.get("version", 1),
@@ -492,10 +536,9 @@ def sanitize_suggested_rules(candidate: Any, policy_name: str | None) -> dict[st
         "connectors": connectors,
     }
 
-    report = simulate_design(PolicyDesignRequest(policyName=policy_name, rules=normalized_candidate))
-    if report.errors:
-        return None
-
+    # We do NOT discard the candidate if there are errors anymore.
+    # The frontend is responsible for validating the rules and showing explicit error messages to the user.
+    # If we return None here, the frontend thinks the AI omitted the structure.
     return normalized_candidate
 
 
@@ -548,28 +591,28 @@ def learn_execution(request: LearningRequest) -> dict[str, Any]:
 
 @app.post("/voice/intake", response_model=VoiceIntakeResponse)
 def voice_intake(request: VoiceIntakeRequest) -> VoiceIntakeResponse:
-    runtime = get_ai_runtime()
+    runtime = get_ai_runtime(azure_client=_get_azure_client())
     result = runtime.voice_intake(request.model_dump())
     return VoiceIntakeResponse(**result)
 
 
 @app.post("/analyst/insights", response_model=AnalystInsightsResponse)
 def analyst_insights(request: AnalystInsightsRequest) -> AnalystInsightsResponse:
-    runtime = get_ai_runtime()
+    runtime = get_ai_runtime(azure_client=_get_azure_client())
     result = runtime.analyst_insights(request.model_dump())
     return AnalystInsightsResponse(**result)
 
 
 @app.post("/reports/draft", response_model=ReportDraftResponse)
 def report_draft(request: ReportDraftRequest) -> ReportDraftResponse:
-    runtime = get_ai_runtime()
+    runtime = get_ai_runtime(azure_client=_get_azure_client())
     result = runtime.report_draft(request.model_dump())
     return ReportDraftResponse(**result)
 
 
 @app.post("/form/assist", response_model=FormAssistResponse)
 def form_assist(request: FormAssistRequest) -> FormAssistResponse:
-    runtime = get_ai_runtime()
+    runtime = get_ai_runtime(azure_client=_get_azure_client())
     result = runtime.form_assist(request.model_dump())
     return FormAssistResponse(**result)
 
@@ -927,6 +970,57 @@ def collaborate_existing_flow(request: AssistantRequest, prompt: str, simulation
 
     proposed = deepcopy(current)
     changed = False
+    
+    if not proposed.get("nodes") and not proposed.get("connectors"):
+        rules_for_heuristic = request.rules or {}
+        if request.availableDepartments:
+            rules_for_heuristic["availableDepartments"] = request.availableDepartments
+        basic_flow_departments = requested_departments_for_prompt(rules_for_heuristic, prompt)
+        if basic_flow_departments:
+            changed = True
+            
+            start_id = "node-start-001"
+            end_id = "node-end-001"
+            
+            proposed["nodes"].append({"id": start_id, "type": "START", "label": "Inicio", "x": 240, "y": lane_y_for_department(proposed, str(basic_flow_departments[0]["id"])), "departmentId": basic_flow_departments[0]["id"]})
+            
+            prev_id = start_id
+            for i, dept in enumerate(basic_flow_departments):
+                task_id = f"node-task-{i+1}"
+                proposed["nodes"].append({
+                    "id": task_id,
+                    "type": "TASK",
+                    "label": f"Tarea Operativa {dept.get('name', 'General')}",
+                    "departmentId": dept["id"],
+                    "x": 240 + (i + 1) * 220,
+                    "y": lane_y_for_department(proposed, str(dept["id"])),
+                    "config": {
+                        "taskType": "MANUAL",
+                        "estimatedTime": 24,
+                        "form": {
+                            "title": "Formulario Operativo",
+                            "fields": [{"id": f"field_{i}", "type": "TEXT", "label": "Observaciones", "required": True, "order": 1, "visibleToClient": False}]
+                        }
+                    }
+                })
+                
+                # Check if department is not already in proposed["departments"]
+                if not any(d.get("id") == dept["id"] for d in proposed["departments"]):
+                    proposed["departments"].append(dept)
+                    
+                proposed["connectors"].append({"id": f"conn-{prev_id}-{task_id}", "sourceId": prev_id, "targetId": task_id, "type": "CONTROL_FLOW"})
+                prev_id = task_id
+                
+            proposed["nodes"].append({"id": end_id, "type": "END", "label": "Fin", "x": 240 + (len(basic_flow_departments) + 1) * 220, "y": lane_y_for_department(proposed, str(basic_flow_departments[-1]["id"])), "departmentId": basic_flow_departments[-1]["id"]})
+            proposed["connectors"].append({"id": f"conn-{prev_id}-{end_id}", "sourceId": prev_id, "targetId": end_id, "type": "CONTROL_FLOW"})
+            
+            return AssistantResponse(
+                answer="Generé un flujo básico secuencial basado en los departamentos que pediste, ya que la pizarra estaba vacía. Podés ajustarlo según necesites.",
+                recommendations=["Revisá los formularios operativos de cada tarea.", "Ajustá los tiempos estimados según la carga real."],
+                suggestedRules=proposed,
+                modelSource="heuristic",
+            )
+            
     recommendations = simulation.recommendations + flow_improvement_recommendations(prompt, proposed, simulation)
 
     if any(word in prompt for word in ["firma", "firmar", "cliente"]):
@@ -1400,9 +1494,9 @@ def lane_y_for_department(rules: dict[str, Any], department_id: str) -> int:
     for department in list(rules.get("departments") or []):
         height = int(lane_heights.get(department.get("id"), 140) or 140)
         if department.get("id") == department_id:
-            return y + 40
+            return y + 80
         y += height
-    return y + 40
+    return y + 80
 
 
 def shift_nodes_after_x(rules: dict[str, Any], min_x: int, delta: int) -> None:

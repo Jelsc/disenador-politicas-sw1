@@ -8,6 +8,8 @@ import { NgIconComponent } from '@ng-icons/core';
 import { AuthService } from '../../../core/services/auth.service';
 import { DocumentCollaborationService } from '../../services/document-collaboration.service';
 import { DocumentRepositoryService, DocumentRepositorySettings, DocumentRepositoryVersion } from '../../services/document-repository.service';
+import { AdminDepartmentsService } from '../../../admin/services/admin-departments.service';
+import { Department } from '../../../admin/models/admin.models';
 
 @Component({
   selector: 'app-document-repository',
@@ -22,6 +24,7 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
   private readonly repositoryService = inject(DocumentRepositoryService);
   private readonly collaborationService = inject(DocumentCollaborationService);
   private readonly authService = inject(AuthService);
+  private readonly departmentsService = inject(AdminDepartmentsService);
 
   readonly repositoryId = signal<string | null>(null);
   readonly repositoryScope = signal<'policy' | 'procedure'>('policy');
@@ -38,6 +41,8 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
   readonly selectedFile = signal<File | null>(null);
   readonly currentRole = signal<string | null>(null);
   readonly currentUsername = signal<string | null>(null);
+  readonly currentDepartmentIds = signal<string[]>([]);
+  readonly availableDepartments = signal<Department[]>([]);
 
   readonly accessStateLabel = computed(() => this.readOnly() ? 'Solo lectura' : 'Configuración editable');
   readonly repositoryTitle = computed(() => this.repositoryScope() === 'policy' ? 'Repositorio documental de la política' : 'Repositorio documental del trámite');
@@ -46,13 +51,23 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
     : 'Consultá documentos, versiones y trazas sin modificar la configuración operativa.');
   readonly permissionSummary = computed(() => {
     const settings = this.repositorySettings();
-    const allowedRoles = settings?.allowedRoles?.length ? settings.allowedRoles.join(', ') : 'Sin roles definidos';
+    const depts = this.availableDepartments();
+    const allowedDeptIds = settings?.allowedRoles || [];
+    
+    // Convert allowed IDs back to names for summary
+    const allowedDeptNames = allowedDeptIds.length 
+      ? allowedDeptIds.map(id => {
+          const dept = depts.find(d => d.id === id);
+          return dept ? dept.name : id;
+        }).join(', ')
+      : 'Sin departamentos definidos';
+
     const allowedFormats = settings?.allowedFormats?.length ? settings.allowedFormats.join(', ') : 'Sin formatos definidos';
     const maxFileSize = settings?.maxFileSizeMb ? `${settings.maxFileSizeMb} MB` : 'Sin límite definido';
     const currentRole = this.currentRole() || 'Sin sesión';
     const accessMode = this.canUpload() ? 'Editing enabled' : (this.readOnly() ? 'Read-only' : 'Editing blocked by permissions');
 
-    return { allowedRoles, allowedFormats, maxFileSize, currentRole, accessMode };
+    return { allowedRoles: allowedDeptNames, allowedFormats, maxFileSize, currentRole, accessMode };
   });
   readonly versionStateLabel = computed(() => {
     const selectedDocumentId = this.selectedDocumentId();
@@ -93,33 +108,41 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
 
   readonly settingsForm = this.fb.group({
     policyId: ['', [Validators.required]],
-    allowedRolesText: ['', [Validators.required]],
+    allowedRolesText: [[] as string[]], // Used to store array of selected department IDs
     allowedFormatsText: ['', [Validators.required]],
     maxFileSizeMb: [10, [Validators.required, Validators.min(1)]]
   });
 
   canUpload(): boolean {
     const settings = this.repositorySettings();
-    const currentRole = this.currentRole();
+    const userDeptIds = this.currentDepartmentIds();
 
-    if (this.readOnly() || !settings || !currentRole) {
+    if (this.readOnly() || !settings) {
       return false;
     }
 
-    const allowedRoles = settings.allowedRoles
-      .map(role => role.trim().toUpperCase())
-      .filter(role => role.length > 0);
+    // allowedRoles now stores allowed department IDs
+    const allowedDeptIds = settings.allowedRoles
+      .map(id => id.trim())
+      .filter(id => id.length > 0);
 
-    if (allowedRoles.length === 0) {
+    if (allowedDeptIds.length === 0) {
       return false;
     }
 
-    return allowedRoles.includes(currentRole.trim().toUpperCase());
+    return allowedDeptIds.some(id => userDeptIds.includes(id));
   }
 
   ngOnInit(): void {
     this.currentRole.set(this.authService.getUserRole());
     this.currentUsername.set(this.authService.getUsername());
+    this.currentDepartmentIds.set(this.authService.getUserDepartmentIds() || []);
+    
+    this.departmentsService.getDepartments().subscribe({
+      next: depts => this.availableDepartments.set(depts.filter(d => d.active)),
+      error: () => console.error('Error fetching departments')
+    });
+
     this.repositoryScope.set(this.route.snapshot.data['repositoryScope'] === 'procedure' ? 'procedure' : 'policy');
     this.readOnly.set(this.route.snapshot.data['mode'] === 'view');
     this.syncFormAccess();
@@ -140,6 +163,11 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
     const id = this.repositoryId();
     if (this.repositoryScope() === 'procedure') return ['/tramites'];
     if (!id) return ['/policies'];
+    
+    const from = this.route.snapshot.queryParamMap.get('from');
+    if (from === 'edit') return ['/policies', 'edit', id];
+    
+    // Default or from === 'view' goes to the view route
     return ['/policies', id];
   }
 
@@ -155,7 +183,7 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
 
     const request = {
       policyId: (this.settingsForm.value.policyId || '').trim(),
-      allowedRoles: this.splitList(this.settingsForm.value.allowedRolesText),
+      allowedRoles: Array.isArray(this.settingsForm.value.allowedRolesText) ? this.settingsForm.value.allowedRolesText : [],
       allowedFormats: this.splitList(this.settingsForm.value.allowedFormatsText),
       maxFileSizeMb: Number(this.settingsForm.value.maxFileSizeMb)
     };
@@ -272,7 +300,7 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
   private applySettingsToForm(settings: DocumentRepositorySettings | null, fallbackPolicyId?: string): void {
     this.settingsForm.reset({
       policyId: settings?.policyId || fallbackPolicyId || '',
-      allowedRolesText: this.joinList(settings?.allowedRoles ?? []),
+      allowedRolesText: settings?.allowedRoles ?? [],
       allowedFormatsText: this.joinList(settings?.allowedFormats ?? []),
       maxFileSizeMb: settings?.maxFileSizeMb ?? 10
     }, { emitEvent: false });
@@ -296,5 +324,21 @@ export class DocumentRepositoryComponent implements OnInit, OnDestroy {
     } else {
       this.settingsForm.enable({ emitEvent: false });
     }
+  }
+
+  toggleDepartmentSelection(deptId: string, event: Event): void {
+    if (this.readOnly()) return;
+    const checkbox = event.target as HTMLInputElement;
+    const currentList = (this.settingsForm.value.allowedRolesText as string[]) || [];
+    
+    let newList;
+    if (checkbox.checked) {
+      newList = [...currentList, deptId];
+    } else {
+      newList = currentList.filter(id => id !== deptId);
+    }
+    
+    this.settingsForm.patchValue({ allowedRolesText: newList });
+    this.settingsForm.markAsDirty();
   }
 }

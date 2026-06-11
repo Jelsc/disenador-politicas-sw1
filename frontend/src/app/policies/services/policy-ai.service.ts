@@ -119,8 +119,8 @@ export class PolicyAiService {
     return this.http.post<AiSimulationReport>(`${this.apiUrl}/simulate`, { policyName, rules });
   }
 
-  ask(prompt: string, policyName: string, rules: any, history: AiAssistantMessage[] = []): Observable<AiAssistantResponse> {
-    return this.http.post<AiAssistantResponse>(`${this.apiUrl}/assistant`, { prompt, policyName, rules, history });
+  ask(prompt: string, policyName: string, rules: any, history: AiAssistantMessage[] = [], availableDepartments: any[] = []): Observable<AiAssistantResponse> {
+    return this.http.post<AiAssistantResponse>(`${this.apiUrl}/assistant`, { prompt, policyName, rules, history, availableDepartments });
   }
 
   learnExecution(events: AiExecutionLearningEvent[]): Observable<{ learnedEvents: number; policies: number }> {

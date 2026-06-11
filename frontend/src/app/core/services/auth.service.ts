@@ -12,6 +12,7 @@ export class AuthService {
   private apiUrl = `${environment.apiUrl}/auth`;
   private tokenKey = 'jwt_token';
   private userRole$ = new BehaviorSubject<string | null>(null);
+  private userDepartmentIds$ = new BehaviorSubject<string[]>([]);
   private username$ = new BehaviorSubject<string | null>(null);
 
   constructor(private http: HttpClient) {
@@ -38,6 +39,7 @@ export class AuthService {
     localStorage.removeItem(this.tokenKey);
     localStorage.removeItem('username');
     this.userRole$.next(null);
+    this.userDepartmentIds$.next([]);
     this.username$.next(null);
   }
 
@@ -47,9 +49,11 @@ export class AuthService {
     // Extract first role from roles array, fallback to OPERATOR
     const roles = decodedToken.roles || [];
     const role = (Array.isArray(roles) && roles.length > 0) ? roles[0] : 'OPERATOR';
+    const departmentIds = Array.isArray(decodedToken.departmentIds) ? decodedToken.departmentIds : [];
     const username = decodedToken.sub || 'usuario';
     localStorage.setItem('username', username);
     this.userRole$.next(role);
+    this.userDepartmentIds$.next(departmentIds);
     this.username$.next(username);
   }
 
@@ -72,6 +76,10 @@ export class AuthService {
   getUserRole(): string | null {
     return this.userRole$.value;
   }
+  
+  getUserDepartmentIds(): string[] {
+    return this.userDepartmentIds$.value;
+  }
 
   getUsername(): string | null {
     return localStorage.getItem('username');
@@ -93,7 +101,9 @@ export class AuthService {
         // Extract first role from roles array, fallback to OPERATOR
         const roles = decodedToken.roles || [];
         const role = (Array.isArray(roles) && roles.length > 0) ? roles[0] : 'OPERATOR';
+        const departmentIds = Array.isArray(decodedToken.departmentIds) ? decodedToken.departmentIds : [];
         this.userRole$.next(role);
+        this.userDepartmentIds$.next(departmentIds);
         this.username$.next(decodedToken.sub || localStorage.getItem('username'));
       } catch (err) {
         this.logout();

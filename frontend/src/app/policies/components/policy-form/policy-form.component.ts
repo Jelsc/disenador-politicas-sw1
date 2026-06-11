@@ -142,6 +142,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
   validationMessage = signal('');
   policyVersions = signal<PolicyVersionItem[]>([]);
   versionPanelOpen = signal(false);
+  toolPanelOpen = signal(true);
   invitePanelOpen = signal(false);
   departmentsPanelOpen = signal(false);
   eligibleEditors = signal<PolicyEditorCandidate[]>([]);
@@ -158,6 +159,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
   simulationChecks = signal<SimulationCheck[]>([]);
   simulationReport = signal<SimulationReport | null>(null);
   aiPanelOpen = signal(false);
+  aiDetailsOpen = signal(false);
   aiLoading = signal(false);
   aiMessages = signal<AiChatMessage[]>([]);
   aiPrompt = '';
@@ -1043,6 +1045,10 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
     }
   }
 
+  toggleToolPanel(): void {
+    this.toolPanelOpen.update(value => !value);
+  }
+
   toggleInvitePanel(): void {
     if (this.isReadOnly()) return;
     this.invitePanelOpen.update(value => !value);
@@ -1057,9 +1063,15 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
       this.versionPanelOpen.set(false);
       this.invitePanelOpen.set(false);
       this.selectedNode.set(null);
+      this.connectMode.set(false);
+      this.connectorSourceId.set(null);
       this.cdr.detectChanges();
       this.syncActiveComposerTextarea();
     }
+  }
+
+  toggleAiDetails(): void {
+    this.aiDetailsOpen.update(v => !v);
   }
 
   submitWorkspacePrompt(): void {
@@ -1134,12 +1146,35 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private sendAiAssistantRequest(prompt: string, history: { role: 'user' | 'assistant'; content: string }[], currentRules: PolicyBoardRules): void {
-    this.policyAiService.ask(prompt, this.policyForm.value.name || 'Política en diseño', currentRules, history).subscribe({
+    this.policyAiService.ask(prompt, this.policyForm.value.name || 'Política en diseño', currentRules, history, this.availableDepartments()).subscribe({
       next: response => {
-        this.aiMessages.update(messages => [...messages, { role: 'assistant', content: response.answer, recommendations: response.recommendations || [] }]);
         const suggestedRules = response.suggestedRules ? this.normalizeSuggestedRules(response.suggestedRules) : null;
         const validationError = suggestedRules ? this.validateRulesSnapshot(suggestedRules) : '';
-        if (suggestedRules && validationError) {
+        
+        if (!suggestedRules) {
+          this.aiMessages.update(messages => [...messages, { 
+            role: 'assistant', 
+            content: response.answer || 'La IA no devolvió un diagrama.', 
+            recommendations: [...(response.recommendations || []), 'Error estructural: La IA no incluyó los nodos y conectores en su respuesta interna.', 'Por favor, reintentá tu solicitud de forma más explícita.'] 
+          }]);
+          this.aiSuggestedRules.set(null);
+          this.aiSuggestion.set({
+            status: 'error',
+            prompt,
+            answer: response.answer || 'La IA no devolvió un diagrama.',
+            recommendations: [...(response.recommendations || []), 'La propuesta no pasó validación.'],
+            summary: 'La IA no generó los nodos o conectores solicitados.',
+            changeSummary: this.emptyAiChangeSummary(),
+            suggestedRules: null,
+            errorMessage: 'Estructura omitida en la respuesta de la IA'
+          });
+          this.aiDetailsOpen.set(true);
+        } else if (validationError) {
+          this.aiMessages.update(messages => [...messages, { 
+            role: 'assistant', 
+            content: response.answer || 'La IA devolvió una propuesta inválida.', 
+            recommendations: [...(response.recommendations || []), 'Error estructural: ' + validationError, 'La propuesta fue rechazada y no se puede aplicar.'] 
+          }]);
           this.aiSuggestedRules.set(null);
           this.aiSuggestion.set({
             status: 'error',
@@ -1151,9 +1186,12 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
             suggestedRules: null,
             errorMessage: validationError
           });
+          this.aiDetailsOpen.set(true);
         } else {
+          this.aiMessages.update(messages => [...messages, { role: 'assistant', content: response.answer, recommendations: response.recommendations || [] }]);
           this.aiSuggestedRules.set(suggestedRules);
           this.aiSuggestion.set(this.buildAiSuggestionState(prompt, response.answer, response.recommendations || [], currentRules, suggestedRules));
+          if (suggestedRules) this.aiDetailsOpen.set(true);
         }
         this.aiLoading.set(false);
       },
@@ -1404,7 +1442,9 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
   openDocumentRepository(): void {
     const id = this.policyId();
     if (!id) return;
-    this.router.navigate(['/policies', id, 'documents']);
+    this.router.navigate(['/policies', id, 'documents'], {
+      queryParams: { from: this.isReadOnly() ? 'view' : 'edit' }
+    });
   }
 
   typedPolicyVersions(): PolicyVersionItem[] {
@@ -1982,7 +2022,7 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
 
   private defaultConfig(type: BoardNodeType): NodeConfig {
     if (type === 'START') return { startCondition: 'Trámite creado por funcionario', initialMessage: 'Trámite recibido', initialStatus: 'RECIBIDO' };
-    if (type === 'TASK') return { taskType: 'MANUAL', priority: 'NORMAL', requiresSignature: false, allowsDocuments: false, visibleToClient: true, notifyClient: false, form: this.defaultTaskForm('Nueva tarea') };
+    if (type === 'TASK') return { taskType: 'MANUAL', executor: 'OPERATOR', priority: 'NORMAL', requiresSignature: false, allowsDocuments: false, visibleToClient: true, notifyClient: false, form: this.defaultTaskForm('Nueva tarea') };
     if (type === 'GATEWAY') return { conditionType: 'BOOLEAN', defaultBranch: '' };
     if (type === 'PARALLEL') return { executionMode: 'ALL' };
     if (type === 'JOIN') return { joinRule: 'Todas las tareas paralelas requeridas completadas' };

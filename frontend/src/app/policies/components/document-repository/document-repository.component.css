@@ -102,6 +102,11 @@
   gap: var(--spacing-lg);
 }
 
+.repository-grid.single-col {
+  grid-template-columns: minmax(340px, 600px);
+  justify-content: center;
+}
+
 .panel {
   background: var(--color-bg-panel);
   border: 1px solid var(--color-border);
@@ -262,7 +267,7 @@
   max-width: 220px;
 }
 
-.settings-form input,
+.settings-form input:not([type='checkbox']),
 .settings-form textarea,
 .upload-form input[type='text'],
 .upload-form input[type='file'] {
@@ -277,6 +282,39 @@
 
 .settings-form textarea {
   resize: vertical;
+}
+
+.field-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--color-text-main);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.5);
+}
+
+.settings-form label.checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  font-weight: 500;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
 }
 
 .upload-panel {

@@ -17,7 +17,7 @@ import { NgIconComponent } from '@ng-icons/core';
         </div>
       </header>
 
-      <div class="stats-grid" *ngIf="userRole === 'ADMIN' || userRole === 'DESIGNER'">
+      <div class="stats-grid" *ngIf="userRole === 'ADMIN' || userRole === 'DESIGNER' || userRole === 'AUDITOR'">
         <div class="stat-card">
           <div class="stat-icon">
             <ng-icon name="lucideClipboardList"></ng-icon>
@@ -48,7 +48,7 @@ import { NgIconComponent } from '@ng-icons/core';
       </div>
 
       <div class="dashboard-grid">
-        <div class="analytics-card panel" *ngIf="userRole === 'ADMIN' || userRole === 'DESIGNER'">
+        <div class="analytics-card panel" *ngIf="userRole === 'ADMIN' || userRole === 'DESIGNER' || userRole === 'AUDITOR'">
           <div class="card-header">
             <h3>Top 5 Cuellos de botella (Promedio hrs/tarea)</h3>
           </div>
@@ -156,7 +156,7 @@ export class HomeComponent implements OnInit {
 
   ngOnInit(): void {
     this.userRole = this.authService.getUserRole() || 'OPERATOR';
-    if (this.userRole === 'ADMIN' || this.userRole === 'DESIGNER') {
+    if (this.userRole === 'ADMIN' || this.userRole === 'DESIGNER' || this.userRole === 'AUDITOR') {
       this.operations.getLearningEvents().subscribe({
         next: (data) => this.events.set(data),
         error: () => this.events.set([])

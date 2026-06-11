@@ -49,6 +49,7 @@ export interface NodeConfig {
   generatesClientNotification?: boolean;
   requiresFinalDocument?: boolean;
   taskType?: 'MANUAL' | 'OPERATIVE' | 'ANALYTICAL' | 'REVISION' | 'APPROVAL' | 'SIGNATURE' | 'DOCUMENTAL' | 'NOTIFICATION' | 'NORMAL' | 'PARALLEL';
+  executor?: 'OPERATOR' | 'CLIENT';
   priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
   requiresSignature?: boolean;
   allowsDocuments?: boolean;

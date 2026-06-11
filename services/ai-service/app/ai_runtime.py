@@ -35,6 +35,12 @@ WHISPER_MODEL = os.getenv("WHISPER_MODEL", "tiny")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "")
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+AZURE_OPENAI_TIMEOUT_SECONDS = float(os.getenv("AZURE_OPENAI_TIMEOUT_SECONDS", "60"))
+
 
 ROUTE_LABELS = ["GENERAL", "LEGAL", "FINANCIERO", "ATENCION", "SOPORTE", "RRHH"]
 RISK_LABELS = ["LOW", "NORMAL", "HIGH"]
@@ -76,6 +82,24 @@ class OllamaClient:
                 json={
                     "model": self.model,
                     "stream": False,
+                    "format": {
+                        "type": "object",
+                        "properties": {
+                            "suggestedRules": {
+                                "type": "object",
+                                "properties": {
+                                    "departments": {"type": "array"},
+                                    "laneHeights": {"type": "object"},
+                                    "nodes": {"type": "array"},
+                                    "connectors": {"type": "array"}
+                                },
+                                "required": ["departments", "nodes", "connectors"]
+                            },
+                            "answer": {"type": "string"},
+                            "recommendations": {"type": "array", "items": {"type": "string"}}
+                        },
+                        "required": ["suggestedRules", "answer", "recommendations"]
+                    },
                     "options": {"temperature": temperature, "num_ctx": 4096},
                     "messages": [
                         {"role": "system", "content": system_prompt},
@@ -86,6 +110,62 @@ class OllamaClient:
             response.raise_for_status()
 
         content = response.json().get("message", {}).get("content", "")
+        return self._parse_json(content)
+
+    def _parse_json(self, content: str) -> dict[str, Any]:
+        text = content.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.IGNORECASE | re.DOTALL)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+            if match:
+                return json.loads(match.group(0))
+            raise
+
+
+class AzureOpenAIClient:
+    def __init__(
+        self,
+        endpoint: str = AZURE_OPENAI_ENDPOINT,
+        deployment: str = AZURE_OPENAI_DEPLOYMENT,
+        api_key: str = AZURE_OPENAI_KEY,
+        api_version: str = AZURE_OPENAI_API_VERSION,
+        timeout_seconds: float = AZURE_OPENAI_TIMEOUT_SECONDS,
+    ) -> None:
+        self.endpoint = endpoint.rstrip("/")
+        self.deployment = deployment
+        self.api_key = api_key
+        self.api_version = api_version
+        self.timeout_seconds = timeout_seconds
+
+    @property
+    def _chat_url(self) -> str:
+        return f"{self.endpoint}/openai/deployments/{self.deployment}/chat/completions?api-version={self.api_version}"
+
+    @property
+    def _configured(self) -> bool:
+        return bool(self.endpoint and self.api_key)
+
+    def chat_json(self, system_prompt: str, user_payload: dict[str, Any], *, temperature: float = 0.2) -> dict[str, Any]:
+        with httpx.Client(timeout=self.timeout_seconds) as client:
+            response = client.post(
+                self._chat_url,
+                headers={"api-key": self.api_key, "Content-Type": "application/json"},
+                json={
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": temperature,
+                    "max_tokens": 4096,
+                },
+            )
+            response.raise_for_status()
+
+        content = response.json()["choices"][0]["message"]["content"]
         return self._parse_json(content)
 
     def _parse_json(self, content: str) -> dict[str, Any]:
@@ -251,34 +331,57 @@ class DeepLearningCore:
 
 
 class AICoreRuntime:
-    def __init__(self, ollama_client: OllamaClient | None = None, dl_core: DeepLearningCore | None = None, transcriber: WhisperTranscriber | None = None) -> None:
+    def __init__(self, ollama_client: OllamaClient | None = None, azure_client: AzureOpenAIClient | None = None, dl_core: DeepLearningCore | None = None, transcriber: WhisperTranscriber | None = None) -> None:
         self.ollama_client = ollama_client or OllamaClient()
         if hasattr(self.ollama_client, "timeout_seconds"):
             self.ollama_client.timeout_seconds = min(float(getattr(self.ollama_client, "timeout_seconds", 45.0)), 45.0)
+        self.azure_client = azure_client or AzureOpenAIClient()
         self.dl_core = dl_core or DeepLearningCore()
         self.transcriber = transcriber or WhisperTranscriber()
+
+    def _chat_json(self, system_prompt: str, user_payload: dict[str, Any], *, temperature: float = 0.2) -> tuple[dict[str, Any], str]:
+        """Try Ollama first, then Azure OpenAI, then raise.
+        Returns (data, source) where source is 'ollama' or 'azure'."""
+        try:
+            data = self.ollama_client.chat_json(system_prompt, user_payload, temperature=temperature)
+            return data, "ollama"
+        except Exception:
+            if self.azure_client._configured:
+                try:
+                    data = self.azure_client.chat_json(system_prompt, user_payload, temperature=temperature)
+                    return data, "azure"
+                except Exception:
+                    raise
+            raise
 
     def assistant(self, request: dict[str, Any], simulation: dict[str, Any]) -> dict[str, Any]:
         system_prompt = (
             "Sos un asistente experto en diseño de trámites públicos, flujos operativos y formularios. "
-            "Respondé en español claro y devolvé JSON estricto con esta forma: "
-            '{"answer": string, "recommendations": string[], "suggestedRules": object|null}. '
-            "No inventes departamentos ni pasos fuera del contexto. "
-            "Si proponés suggestedRules, devolvé una snapshot completa y conectada que cumpla el contrato del tablero. "
+            "Respondé en español claro y devolvé JSON estricto con esta forma exacta: "
+            '{"suggestedRules": {"departments": [], "laneHeights": {}, "nodes": [], "connectors": []}, "answer": string, "recommendations": string[]}. '
+            "CRÍTICO: ES OBLIGATORIO DEVOLVER SIEMPRE LA CLAVE 'suggestedRules' COMO PRIMERA CLAVE DEL JSON CON TODOS SUS ARREGLOS, AUNQUE LA PIZARRA ESTÉ VACÍA. NUNCA DEVUELVAS NULL. "
+            "El usuario te está pasando 'availableDepartments' en el payload. Si te pide crear un flujo para departamentos reales (ej: Operaciones, Redes, Legal), BUSCÁ su ID en 'availableDepartments' e incluilos en 'departments'. Si NO existe en la lista, INVENTÁ uno nuevo y agregalo con un ID único."
+            "Si proponés suggestedRules, devolvé TODOS los arreglos completos, respetando el formato JSON de la política. "
+            "CRÍTICO PARA LA INTERFAZ: Asigná propiedades 'x' e 'y' numéricas y lógicas a CADA nodo (sepáralos por 180px en el eje X para secuencias, o en el eje Y para bifurcaciones) para evitar que se superpongan en la pantalla. "
             "No dejes TASKs sin departmentId, taskType, estimatedTime ni formulario operativo. "
             "No dejes GATEWAYs sin evaluatedField, branches, defaultBranch ni dos salidas como mínimo. "
-            "No crees conectores hacia ids que no existan."
+            "No crees conectores hacia ids que no existan. "
+            "EJEMPLO ESTRUCTURA NODO: {\"id\": \"n1\", \"type\": \"TASK\", \"label\": \"Ejemplo\", \"departmentId\": \"d1\", \"x\": 200, \"y\": 150, \"config\": {\"taskType\": \"MANUAL\", \"estimatedTime\": 24, \"form\": {\"title\": \"Form\", \"fields\": [{\"id\": \"f1\", \"type\": \"TEXT\", \"label\": \"Campo\", \"required\": true}]}}}. "
+            "EJEMPLO CONECTOR: {\"id\": \"c1\", \"sourceId\": \"n1\", \"targetId\": \"n2\", \"type\": \"CONTROL_FLOW\"}. "
+            "IMPORTANTE: Cumplí SIEMPRE la solicitud devolviendo los nodos/conectores en 'suggestedRules', "
+            "incluso si la pizarra actual ('rules') está vacía. NUNCA devuelvas suggestedRules en null."
         )
         payload = {
             "policyName": request.get("policyName"),
             "prompt": request.get("prompt"),
             "rules": request.get("rules") or {},
             "history": request.get("history") or [],
+            "availableDepartments": request.get("availableDepartments") or [],
             "simulation": simulation,
             "boardContract": request.get("boardContract") or {},
         }
         try:
-            data = self.ollama_client.chat_json(system_prompt, payload)
+            data, source = self._chat_json(system_prompt, payload)
             answer = str(data.get("answer") or "").strip()
             if not answer:
                 raise ValueError("empty assistant answer")
@@ -286,14 +389,19 @@ class AICoreRuntime:
                 "answer": answer,
                 "recommendations": [str(item).strip() for item in data.get("recommendations", []) if str(item).strip()],
                 "suggestedRules": data.get("suggestedRules"),
-                "modelSource": "ollama",
+                "modelSource": source,
             }
         except Exception as exc:
+            import traceback
+            error_details = type(exc).__name__
+            if hasattr(exc, "response") and exc.response is not None:
+                error_details += f" | {exc.response.status_code}: {exc.response.text[:200]}"
+            
             return {
                 "answer": "Ollama no respondió correctamente, así que devolví una respuesta heurística segura.",
                 "recommendations": [
                     "Reintentá la consulta cuando el modelo esté disponible.",
-                    f"Detalle técnico: {type(exc).__name__}",
+                    f"Detalle técnico: {error_details}",
                 ],
                 "suggestedRules": None,
                 "modelSource": "heuristic",
@@ -320,7 +428,7 @@ class AICoreRuntime:
             "predictions": predictions,
             "instruction": "Return JSON with structuredFields, policyAssignment, suggestedNextAction, and confidence.",
         }
-        data = self.ollama_client.chat_json(
+        data, _ = self._chat_json(
             "Sos un extractor de trámites. Devolvé JSON estricto y priorizá los datos estructurados.",
             payload,
         )
@@ -354,7 +462,7 @@ class AICoreRuntime:
             "historySummary": history.__dict__,
             "predictions": predictions,
         }
-        data = self.ollama_client.chat_json(
+        data, _ = self._chat_json(
             "Sos un analista de trámites. Devolvé JSON estricto con route, risk, priority, anomalies, confidence, summary y recommendedActions.",
             payload,
         )
@@ -390,7 +498,7 @@ class AICoreRuntime:
             "predictions": predictions,
             "instruction": "Return JSON strict with draftTitle, draftBody, missingFields, clarification, confidence, reportType.",
         }
-        data = self.ollama_client.chat_json(
+        data, source = self._chat_json(
             "Sos un redactor de informes. Devolvé JSON estricto y no agregues texto fuera del esquema.",
             payload,
         )
@@ -400,7 +508,7 @@ class AICoreRuntime:
             "missingFields": [str(item) for item in (data.get("missingFields") if isinstance(data.get("missingFields"), list) else []) if str(item).strip()],
             "clarification": data.get("clarification") if isinstance(data.get("clarification"), str) or data.get("clarification") is None else None,
             "confidence": float(data.get("confidence") or predictions["confidence"]),
-            "modelSource": "ollama",
+            "modelSource": source,
             "reportType": str(data.get("reportType") if isinstance(data.get("reportType"), str) and data.get("reportType").strip() else predictions["reportType"]),
         }
 
@@ -426,7 +534,7 @@ class AICoreRuntime:
             "predictions": predictions,
             "instruction": "Return JSON strict with suggestedFields, missingFields and clarification.",
         }
-        data = self.ollama_client.chat_json(
+        data, form_source = self._chat_json(
             "Sos un asistente de formulario. Devolvé JSON estricto con campos sugeridos y faltantes.",
             payload,
         )
@@ -466,7 +574,7 @@ class AICoreRuntime:
             "transcript": transcript,
             "source": "audio" if request.get("audioBase64") else "text",
             "confidence": float(data.get("confidence") or predictions["confidence"]),
-            "modelSource": "ollama",
+            "modelSource": form_source,
             "suggestedFields": normalized_suggested_fields,
             "missingFields": normalized_missing_fields,
             "clarification": data.get("clarification") if isinstance(data.get("clarification"), str) or data.get("clarification") is None else None,
@@ -512,10 +620,10 @@ class AICoreRuntime:
 _runtime: AICoreRuntime | None = None
 
 
-def get_ai_runtime() -> AICoreRuntime:
+def get_ai_runtime(azure_client: AzureOpenAIClient | None = None) -> AICoreRuntime:
     global _runtime
     if _runtime is None:
-        _runtime = AICoreRuntime()
+        _runtime = AICoreRuntime(azure_client=azure_client)
     return _runtime
 
 
