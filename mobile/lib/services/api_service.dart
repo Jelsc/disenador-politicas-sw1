@@ -6,11 +6,108 @@ import '../models/procedure_ticket.dart';
 
 class ApiService {
   // Elegí MANUALMENTE la URL que quieras usar.
-  // LOCAL Android emulator:
-  static const String baseUrl = 'http://10.0.2.2:8080/api';
+  // LOCAL Android emulator (através de Nginx en puerto 80):
+  static const String baseUrl = 'http://192.168.0.3/api';
 
   // NUBE / PRODUCCIÓN:
   //static const String baseUrl = 'https://api-primerpacialsw.duckdns.org/api';
+
+  Future<Map<String, dynamic>> register({
+    required String username,
+    required String password,
+    required String email,
+    required String name,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'username': username,
+          'password': password,
+          'email': email,
+          'name': name,
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        final data = json.decode(response.body);
+        if (data['token'] != null) {
+          return {
+            'success': true,
+            'token': data['token'],
+            'role': data['role'],
+          };
+        }
+        return {'success': true, 'message': 'Registrado correctamente'};
+      } else if (response.statusCode == 409) {
+        final data = json.decode(response.body);
+        return {
+          'success': false,
+          'message': data['message'] ?? 'El usuario ya existe',
+        };
+      } else {
+        return {'success': false, 'message': 'Error al registrarse'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Error de conexión: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> changePassword({
+    required String token,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/change-password'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return {'success': true};
+      } else {
+        final data = response.body.isNotEmpty ? json.decode(response.body) : {};
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Error al cambiar contraseña',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Error de conexión: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> getProfile(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/users/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'success': true,
+          'username': data['username'],
+          'email': data['email'],
+          'name': data['name'],
+          'role': data['role'],
+        };
+      }
+      return {'success': false};
+    } catch (e) {
+      return {'success': false, 'message': 'Error de conexión: $e'};
+    }
+  }
 
   Future<Map<String, dynamic>> login(String username, String password) async {
     try {

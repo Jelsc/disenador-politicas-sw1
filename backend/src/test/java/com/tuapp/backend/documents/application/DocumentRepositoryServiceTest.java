@@ -23,12 +23,15 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import com.tuapp.backend.users.domain.User;
+import com.tuapp.backend.users.domain.UserRepository;
 
 class DocumentRepositoryServiceTest {
 
     private FileStorageService fileStorageService;
     private DocumentRepositorySettingsMongoRepository settingsRepository;
     private DocumentVersionMongoRepository versionRepository;
+    private UserRepository userRepository;
     private DocumentRepositoryService service;
 
     @BeforeEach
@@ -36,7 +39,8 @@ class DocumentRepositoryServiceTest {
         fileStorageService = mock(FileStorageService.class);
         settingsRepository = mock(DocumentRepositorySettingsMongoRepository.class);
         versionRepository = mock(DocumentVersionMongoRepository.class);
-        service = new DocumentRepositoryService(fileStorageService, settingsRepository, versionRepository);
+        userRepository = mock(UserRepository.class);
+        service = new DocumentRepositoryService(fileStorageService, settingsRepository, versionRepository, userRepository);
     }
 
     @Test
@@ -52,6 +56,11 @@ class DocumentRepositoryServiceTest {
         when(versionRepository.findTopByProcedureIdAndDocumentIdOrderByVersionDesc("proc-1", "doc-1")).thenReturn(Optional.empty());
         when(fileStorageService.storeFile(any(), any(), any())).thenReturn("storage-key-1.pdf");
         when(versionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        
+        User mockUser = new User();
+        mockUser.setUsername("ana");
+        mockUser.setDepartmentIds(List.of("OPERATOR"));
+        when(userRepository.findByUsername("ana")).thenReturn(Optional.of(mockUser));
 
         MockMultipartFile file = new MockMultipartFile("file", "evidence.pdf", "application/pdf", "content".getBytes(StandardCharsets.UTF_8));
         DocumentVersionDocument saved = service.uploadDocument("proc-1", file, "doc-1", "DESIGNER", "ana", false);
@@ -74,6 +83,11 @@ class DocumentRepositoryServiceTest {
         when(versionRepository.findTopByProcedureIdAndDocumentIdOrderByVersionDesc("proc-1", "doc-1")).thenReturn(Optional.of(DocumentVersionDocument.builder().version(1).build()));
         when(fileStorageService.storeFile(any(), any(), any())).thenReturn("storage-key-2.pdf");
         when(versionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        
+        User mockUser = new User();
+        mockUser.setUsername("ana");
+        mockUser.setDepartmentIds(List.of("DESIGNER"));
+        when(userRepository.findByUsername("ana")).thenReturn(Optional.of(mockUser));
 
         MockMultipartFile file = new MockMultipartFile("file", "evidence.pdf", "application/pdf", "content".getBytes(StandardCharsets.UTF_8));
         DocumentVersionDocument saved = service.uploadDocument("proc-1", file, "doc-1", "DESIGNER", "ana", false);

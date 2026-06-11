@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { Policy } from '../../policies/models/policy.model';
 
 export interface ProcedureTicket {
@@ -131,11 +132,42 @@ export class OperationService {
     return this.http.post<ProcedureTask>(`${this.apiUrl}/tasks/${taskId}/complete`, { values });
   }
 
-  uploadFile(file: File, field?: OperationTaskField): Observable<{ fileName: string; fileDownloadUri: string; fileType: string; size: string }> {
+  saveTaskDraft(taskId: string, values: Record<string, any> = {}): Observable<ProcedureTask> {
+    return this.http.post<ProcedureTask>(`${this.apiUrl}/tasks/${taskId}/save-draft`, { values });
+  }
+
+  analyzeFormWithAi(task: ProcedureTask, transcript: string): Observable<Record<string, any>> {
+    const payload = {
+      text: transcript,
+      formFields: (task.formFields || []).map(f => ({ id: f.id, label: f.label, type: f.type, options: f.options }))
+    };
+    return this.http.post<any>(`${environment.aiUrl}/form/assist`, payload).pipe(
+      map(res => {
+        const obj: Record<string, any> = { modelSource: res.modelSource };
+        for (const field of res.suggestedFields || []) {
+          obj[field.fieldId] = field.suggestedValue;
+          console.log(`[AI-Assist] mapped field ${field.fieldId} = ${field.suggestedValue}`);
+        }
+        console.log('[AI-Assist] final object to patch:', obj);
+        return obj;
+      })
+    );
+  }
+
+  uploadFile(file: File, field?: OperationTaskField, procedureId?: string, taskId?: string): Observable<{ fileName: string; fileDownloadUri: string; fileType: string; size: string }> {
     const formData = new FormData();
     formData.append('file', file);
     if (field?.allowedFormats?.length) formData.append('allowedFormats', field.allowedFormats.join(','));
     if (field?.maxFileSizeMb) formData.append('maxFileSizeMb', String(field.maxFileSizeMb));
+    
+    if (procedureId && taskId && field?.id) {
+      formData.append('fieldId', field.id);
+      return this.http.post<{ fileName: string; fileDownloadUri: string; fileType: string; size: string }>(
+        `${this.apiUrl}/procedures/${procedureId}/tasks/${taskId}/files`,
+        formData
+      );
+    }
+    
     return this.http.post<{ fileName: string; fileDownloadUri: string; fileType: string; size: string }>(
       `${environment.apiUrl}/files/upload`, 
       formData

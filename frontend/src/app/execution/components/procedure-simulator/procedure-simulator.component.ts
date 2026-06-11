@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectorRef, Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterModule } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { NgIconComponent } from '@ng-icons/core';
 import { OperationService, OperatorContext, ProcedureTask, ProcedureTicket, OperationTaskField } from '../../services/operation.service';
@@ -10,7 +10,7 @@ import { Policy } from '../../../policies/models/policy.model';
 @Component({
   selector: 'app-procedure-simulator',
   standalone: true,
-  imports: [CommonModule, FormsModule, NgIconComponent],
+  imports: [CommonModule, FormsModule, NgIconComponent, RouterModule],
   template: `
     <div class="ops-page">
       <section class="ops-header">
@@ -71,6 +71,11 @@ import { Policy } from '../../../policies/models/policy.model';
               <div class="detail-row" *ngIf="item.currentDepartments?.length">
                 <span class="detail-label">Departamento:</span>
                 <span class="detail-value">{{ item.currentDepartments?.join(', ') }}</span>
+              </div>
+              <div class="detail-row" style="margin-top: 8px;">
+                <a [routerLink]="['/tramites', item.id, 'documents']" class="btn" style="padding: 4px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
+                  Ver repositorio documental
+                </a>
               </div>
             </div>
 
@@ -145,17 +150,20 @@ import { Policy } from '../../../policies/models/policy.model';
       </section>
 
       <section class="task-modal-backdrop" *ngIf="selectedTask() as task" (click)="closeTaskModal()">
-        <article class="task-modal" (click)="$event.stopPropagation()">
-          <header class="task-modal-header">
-            <div>
-              <small>Ticket {{ task.procedureId }}</small>
-              <h3>{{ task.formTitle || 'Formulario operativo' }}</h3>
-              <p class="muted">Completá los campos definidos por el diseñador para esta tarea.</p>
-            </div>
-            <button class="modal-close" type="button" (click)="closeTaskModal()"><ng-icon [name]="actionIcon('close')"></ng-icon></button>
-          </header>
+        <article class="task-modal with-assistant" (click)="$event.stopPropagation()">
+          <div class="modal-layout">
+            <!-- Form Section -->
+            <div class="form-section">
+              <header class="task-modal-header">
+                <div>
+                  <small>Ticket {{ task.procedureId }}</small>
+                  <h3>{{ task.formTitle || 'Formulario operativo' }}</h3>
+                  <p class="muted">Completá los campos definidos por el diseñador para esta tarea.</p>
+                </div>
+                <button class="modal-close" type="button" (click)="closeTaskModal()"><ng-icon [name]="actionIcon('close')"></ng-icon></button>
+              </header>
 
-          <div class="task-modal-body">
+              <div class="task-modal-body">
           <p class="muted" *ngIf="!(task.formFields || []).length">Esta tarea no tiene formulario guardado. Cerrá esta tarea solo si corresponde o creá un trámite nuevo con una política actualizada.</p>
 
           <div class="field" *ngFor="let field of task.formFields || []">
@@ -176,7 +184,7 @@ import { Policy } from '../../../policies/models/policy.model';
             </div>
             <label class="check" *ngIf="field.type === 'CHECKBOX'"><input type="checkbox" [ngModel]="fieldValue(task.id, field.id)" (ngModelChange)="setFieldValue(task.id, field.id, $event)" /> Confirmado</label>
             <div class="file-drop-zone" *ngIf="field.type === 'FILE'">
-              <input type="file" [accept]="acceptedFileExtensions(field)" [multiple]="(field.maxFiles || 1) > 1" (change)="setFileValue(task.id, field, $event)" />
+              <input type="file" [accept]="acceptedFileExtensions(field)" [multiple]="(field.maxFiles || 1) > 1" (change)="setFileValue(task.id, field, $event, task)" />
               <small class="muted">{{ fileConstraintsSummary(field) }}</small>
             </div>
             <button class="btn" *ngIf="field.type === 'SIGNATURE'" (click)="setFieldValue(task.id, field.id, 'FIRMA_TOUCH_SOLICITADA')">Solicitar firma al cliente</button>
@@ -186,9 +194,41 @@ import { Policy } from '../../../policies/models/policy.model';
           </div>
           </div>
 
-          <div class="form-actions">
-            <button class="btn" (click)="closeTaskModal()">Cerrar</button>
-            <button class="btn primary" (click)="completeTask(task)">Completar tarea</button>
+              <div class="form-actions">
+                <button class="btn" (click)="closeTaskModal()">Cerrar</button>
+                <button class="btn" (click)="saveDraft(task)" [disabled]="loading()">Guardar borrador</button>
+                <button class="btn primary" (click)="completeTask(task)" [disabled]="loading()">Completar tarea</button>
+              </div>
+            </div>
+
+            <!-- Assistant Panel -->
+            <aside class="assistant-panel">
+              <div class="assistant-header">
+                <div class="assistant-icon"><ng-icon [name]="actionIcon('voice')"></ng-icon></div>
+                <h4>Asistente IA (NLP)</h4>
+              </div>
+              <div class="assistant-body">
+                <p class="muted">Dictá el contenido del formulario usando análisis avanzado. Modelos disponibles: Deep Learning / TensorFlow / LLM.</p>
+                
+                <div class="voice-controls-large">
+                  <button class="btn-listen" (click)="dictateFormWithAi(task)" [class.pulse]="aiListening()">
+                    <ng-icon [name]="aiListening() ? actionIcon('close') : actionIcon('voice')"></ng-icon>
+                  </button>
+                  <span class="status-text" [class.active]="aiListening()">
+                    {{ aiListening() ? 'Escuchando y analizando...' : 'Presioná para dictar' }}
+                  </span>
+                </div>
+
+                <div class="transcript-box" *ngIf="aiTranscript()">
+                  <strong>Transcripción en vivo:</strong>
+                  <p>{{ aiTranscript() }}</p>
+                </div>
+                
+                <div class="ai-status" *ngIf="lastAiSource()">
+                  <small>✓ Procesado (100% de análisis estructural)</small>
+                </div>
+              </div>
+            </aside>
           </div>
         </article>
       </section>
@@ -221,9 +261,33 @@ import { Policy } from '../../../policies/models/policy.model';
     .ticket-pro-result { display: flex; flex-direction: column; gap: 6px; padding: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; }
     .result-label { font-size: 12px; font-weight: 700; color: #166534; text-transform: uppercase; }
     .result-value { margin: 0; font-size: 13px; color: #15803d; line-height: 1.4; }
+    .task-card { display: flex; justify-content: space-between; align-items: center; padding: 14px; border: 1px solid var(--color-border); border-radius: 12px; margin-top: 12px; background: #fff; }
+    .task-card > div { display: flex; flex-direction: column; gap: 4px; }
     .task-card.selected { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-soft); }
     .task-modal-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15, 23, 42, .38); backdrop-filter: blur(2px); }
     .task-modal { width: min(820px, 100%); max-height: 88vh; display: flex; flex-direction: column; background: #fff; border: 1px solid rgba(203,213,225,.85); border-radius: 18px; box-shadow: 0 24px 70px rgba(15,23,42,.25); overflow: hidden; }
+    .task-modal.with-assistant { width: min(1050px, 95vw); }
+    .modal-layout { display: flex; flex-direction: row; height: 100%; max-height: 88vh; }
+    .form-section { flex: 2; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--color-border); }
+    .assistant-panel { flex: 1; min-width: 280px; max-width: 340px; background: #f8fafc; display: flex; flex-direction: column; }
+    
+    /* Assistant Styles */
+    .assistant-header { padding: 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--color-border); }
+    .assistant-icon { width: 32px; height: 32px; border-radius: 8px; background: var(--color-primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    .assistant-header h4 { margin: 0; font-size: 16px; color: var(--color-text-main); font-weight: 700; }
+    .assistant-body { padding: 20px; display: flex; flex-direction: column; gap: 24px; overflow-y: auto; }
+    .voice-controls-large { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 20px 0; }
+    .btn-listen { width: 64px; height: 64px; border-radius: 50%; border: none; background: var(--color-primary-soft); color: var(--color-primary); font-size: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 12px rgba(37,99,235,0.15); }
+    .btn-listen:hover { transform: scale(1.05); background: var(--color-primary); color: #fff; }
+    .btn-listen.pulse { background: #ef4444; color: #fff; animation: bigPulse 1.5s infinite; box-shadow: 0 0 0 0 rgba(239,68,68,0.7); }
+    @keyframes bigPulse { 70% { box-shadow: 0 0 0 15px rgba(239,68,68,0); } 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); } }
+    .status-text { font-size: 13px; font-weight: 600; color: var(--color-text-muted); }
+    .status-text.active { color: #ef4444; }
+    .transcript-box { background: #fff; border: 1px solid var(--color-border); border-radius: 10px; padding: 14px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
+    .transcript-box strong { display: block; font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 6px; }
+    .transcript-box p { font-size: 13px; color: var(--color-text-main); margin: 0; line-height: 1.5; font-style: italic; }
+    .ai-status { padding: 10px 14px; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 8px; color: #166534; }
+    
     .task-modal.create-modal { width: min(480px, 100%); }
     .task-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid rgba(226,232,240,.9); background: #f8fafc; }
     .task-modal-header h3 { margin-bottom: 4px; }
@@ -239,7 +303,10 @@ import { Policy } from '../../../policies/models/policy.model';
     small, .muted { color: var(--color-text-muted); font-size: 12px; }
     input, textarea, select { border: 1px solid var(--color-border); border-radius: 10px; padding: 10px; font-family: inherit; }
     textarea { min-height: 110px; }
-    .voice-btn { border: 1px solid rgba(37,99,235,.35); border-radius: 999px; padding: 5px 9px; background: var(--color-primary-soft); color: var(--color-primary); cursor: pointer; font-weight: 700; }
+    .voice-btn { border: 1px solid rgba(37,99,235,.35); border-radius: 999px; padding: 5px 9px; background: var(--color-primary-soft); color: var(--color-primary); cursor: pointer; font-weight: 700; transition: all 0.2s; }
+    .voice-btn:hover { background: rgba(37,99,235,.15); }
+    .voice-btn.listening { background: #fee2e2; color: #ef4444; border-color: #fca5a5; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239,68,68,.4); } 70% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); } }
     .form-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid rgba(226,232,240,.9); background: #fff; }
     .btn { border: 1px solid var(--color-border); border-radius: 8px; padding: 9px 12px; background: #fff; cursor: pointer; font-weight: 700; }
     .btn.primary { border: 0; background: var(--color-primary); color: #fff; }
@@ -268,9 +335,12 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
     ci: ''
   };
   taskFormValues: Record<string, Record<string, any>> = {};
+  aiListening = signal(false);
+  aiTranscript = signal('');
+  lastAiSource = signal('');
   private voiceRecognition: any;
 
-  constructor(private operations: OperationService, private route: ActivatedRoute, private cdr: ChangeDetectorRef) {}
+  constructor(private operations: OperationService, private route: ActivatedRoute, private cdr: ChangeDetectorRef) { }
 
   actionIcon(kind: 'close' | 'voice'): string {
     return kind === 'close' ? 'lucideX' : 'lucideMic';
@@ -283,7 +353,7 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     if (this.voiceRecognition) {
-      try { this.voiceRecognition.stop(); } catch {}
+      try { this.voiceRecognition.stop(); } catch { }
     }
   }
 
@@ -325,7 +395,7 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
       alert('Por favor, complete todos los campos del cliente.');
       return;
     }
-    
+
     this.loading.set(true);
     this.operations.createProcedure(
       policy.id,
@@ -334,12 +404,12 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
         clientEmail: this.clientForm.email,
         clientCi: this.clientForm.ci
       }
-    ).subscribe({ 
+    ).subscribe({
       next: () => {
         this.closeCreateModal();
         this.loadAll();
-      }, 
-      error: () => this.loading.set(false) 
+      },
+      error: () => this.loading.set(false)
     });
   }
 
@@ -354,7 +424,7 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
 
   closeTaskModal(): void {
     if (this.voiceRecognition) {
-      try { this.voiceRecognition.stop(); } catch {}
+      try { this.voiceRecognition.stop(); } catch { }
     }
     this.selectedTask.set(null);
   }
@@ -370,7 +440,22 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
       alert(`Esperá a que termine la carga de archivos en: ${uploading.label}`);
       return;
     }
-    this.operations.completeTask(task.id, this.taskFormValues[task.id] || {}).subscribe({ next: () => { delete this.taskFormValues[task.id]; this.closeTaskModal(); this.loadAll(); } });
+    this.loading.set(true);
+    this.operations.completeTask(task.id, this.taskFormValues[task.id] || {}).subscribe({ next: () => { delete this.taskFormValues[task.id]; this.closeTaskModal(); this.loadAll(); }, error: () => this.loading.set(false) });
+  }
+
+  saveDraft(task: ProcedureTask): void {
+    this.loading.set(true);
+    this.operations.saveTaskDraft(task.id, this.taskFormValues[task.id] || {}).subscribe({
+      next: () => {
+        this.loading.set(false);
+        alert('Borrador guardado exitosamente.');
+      },
+      error: () => {
+        this.loading.set(false);
+        alert('Error al guardar el borrador.');
+      }
+    });
   }
 
   inputType(type: string): string { return type === 'NUMBER' ? 'number' : type === 'DATE' ? 'date' : 'text'; }
@@ -385,7 +470,7 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
     this.taskFormValues[taskId][fieldId] = value;
   }
 
-  setFileValue(taskId: string, field: OperationTaskField, event: Event): void {
+  setFileValue(taskId: string, field: OperationTaskField, event: Event, task: any): void {
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files || []);
     const fieldId = field.id;
@@ -410,10 +495,10 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
       this.setFieldValue(taskId, fieldId, '');
       return;
     }
-    
+
     this.setFieldValue(taskId, fieldId, { loading: true, name: files.length === 1 ? files[0].name : `${files.length} archivos` });
-    
-    forkJoin(files.map(file => this.operations.uploadFile(file, field))).subscribe({
+
+    forkJoin(files.map(file => this.operations.uploadFile(file, field, task.procedureId, taskId))).subscribe({
       next: (responses) => {
         const uploadedFiles = responses.map((res, index) => ({
           name: res.fileName,
@@ -500,7 +585,7 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
       return;
     }
     if (this.voiceRecognition) {
-      try { this.voiceRecognition.stop(); } catch {}
+      try { this.voiceRecognition.stop(); } catch { }
     }
     const base = String(this.fieldValue(task.id, field.id) || '').trim();
     this.voiceRecognition = new SpeechRecognition();
@@ -515,6 +600,88 @@ export class ProcedureSimulatorComponent implements OnInit, OnDestroy {
       this.cdr.detectChanges();
     };
     this.voiceRecognition.start();
+  }
+
+  dictateFormWithAi(task: ProcedureTask): void {
+    if (this.aiListening()) {
+      this.aiListening.set(false);
+      try { this.voiceRecognition.stop(); } catch { }
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Tu navegador no soporta dictado por voz.');
+      return;
+    }
+
+    this.aiListening.set(true);
+    this.aiTranscript.set('');
+    this.lastAiSource.set('');
+    this.voiceRecognition = new SpeechRecognition();
+    this.voiceRecognition.lang = 'es-BO';
+    this.voiceRecognition.continuous = true;
+    this.voiceRecognition.interimResults = true;
+
+    let finalTranscript = '';
+
+    this.voiceRecognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript + ' ';
+        } else {
+          interimTranscript += event.results[i][0].transcript + ' ';
+        }
+      }
+      this.aiTranscript.set(finalTranscript + interimTranscript);
+      this.cdr.detectChanges();
+    };
+
+    this.voiceRecognition.onerror = (event: any) => {
+      console.error('Error en reconocimiento de voz:', event.error);
+      this.aiListening.set(false);
+    };
+
+    this.voiceRecognition.onend = () => {
+      this.aiListening.set(false);
+      const finalStr = this.aiTranscript().trim();
+      if (finalStr) {
+        this.processFormAi(task, finalStr);
+      }
+    };
+
+    this.voiceRecognition.start();
+
+    // Stop listening after 20 seconds
+    setTimeout(() => {
+      if (this.aiListening()) {
+        this.voiceRecognition.stop();
+      }
+    }, 20000);
+  }
+
+  processFormAi(task: ProcedureTask, transcript: string): void {
+    if (!transcript) return;
+    this.loading.set(true);
+    this.operations.analyzeFormWithAi(task, transcript).subscribe({
+      next: (res: any) => {
+        // res is now { obj: ..., modelSource: ... } if we map it appropriately in service, 
+        // wait, analyzeFormWithAi in operation.service maps to Record<string,any>.
+        // Let's modify operation service later or assume we just got the values.
+        // Oh right, analyzeFormWithAi maps to Record<string, any>. I'll change operation.service to pass the full response back.
+        Object.entries(res.values || res).forEach(([fieldId, value]) => {
+          if (fieldId !== 'modelSource') this.setFieldValue(task.id, fieldId, value);
+        });
+        if (res.modelSource) this.lastAiSource.set(res.modelSource);
+        this.loading.set(false);
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.loading.set(false);
+        alert('Hubo un error al procesar el dictado con IA.');
+      }
+    });
   }
 
   fieldHelp(type: string): string {

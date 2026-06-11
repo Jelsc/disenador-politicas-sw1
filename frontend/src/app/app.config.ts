@@ -51,7 +51,8 @@ import {
   lucideMaximize2,
   lucideChevronUp,
   lucideRotateCcw,
-  lucideSend
+  lucideSend,
+  lucideFiles
 } from '@ng-icons/lucide';
 
 export const appConfig: ApplicationConfig = {
@@ -106,7 +107,8 @@ export const appConfig: ApplicationConfig = {
       lucideMaximize2,
       lucideChevronUp,
       lucideRotateCcw,
-      lucideSend
+      lucideSend,
+      lucideFiles
     })
   ]
 };

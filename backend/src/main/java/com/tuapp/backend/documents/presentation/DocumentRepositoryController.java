@@ -43,7 +43,7 @@ public class DocumentRepositoryController {
 
     @GetMapping
     public ResponseEntity<List<DocumentVersionResponse>> listLatest(@PathVariable String procedureId, Authentication authentication) {
-        return ResponseEntity.ok(service.listLatestDocuments(procedureId, role(authentication), isAdmin(authentication))
+        return ResponseEntity.ok(service.listLatestDocuments(procedureId, role(authentication), username(authentication), isAdmin(authentication))
                 .stream().map(document -> toResponse(procedureId, document)).toList());
     }
 
@@ -51,7 +51,7 @@ public class DocumentRepositoryController {
     public ResponseEntity<List<DocumentVersionDocument>> listVersions(@PathVariable String procedureId,
                                                                       @PathVariable String documentId,
                                                                       Authentication authentication) {
-        return ResponseEntity.ok(service.listVersions(procedureId, documentId, role(authentication), isAdmin(authentication)));
+        return ResponseEntity.ok(service.listVersions(procedureId, documentId, role(authentication), username(authentication), isAdmin(authentication)));
     }
 
     @PostMapping
@@ -69,8 +69,8 @@ public class DocumentRepositoryController {
                                              @PathVariable Integer version,
                                              Authentication authentication,
                                              HttpServletRequest request) {
-        Resource resource = service.downloadDocument(procedureId, documentId, version, role(authentication), isAdmin(authentication));
-        DocumentVersionDocument metadata = service.getVersion(procedureId, documentId, version, role(authentication), isAdmin(authentication));
+        Resource resource = service.downloadDocument(procedureId, documentId, version, role(authentication), username(authentication), isAdmin(authentication));
+        DocumentVersionDocument metadata = service.getVersion(procedureId, documentId, version, role(authentication), username(authentication), isAdmin(authentication));
         String contentType = metadata.getContentType() != null && !metadata.getContentType().isBlank()
                 ? metadata.getContentType()
                 : (request.getServletContext().getMimeType(resource.getFilename()) != null ? request.getServletContext().getMimeType(resource.getFilename()) : "application/octet-stream");

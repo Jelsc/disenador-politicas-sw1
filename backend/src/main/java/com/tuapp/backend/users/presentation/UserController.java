@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * UserController: handles user management endpoints
@@ -78,7 +79,27 @@ public class UserController {
     }
 
     /**
-     * GET /api/users/:id: get user by ID
+     * GET /api/users/me: Get current user's profile info
+     * MUST be declared BEFORE /{id} or Spring routes "me" as a path variable.
+     */
+    @GetMapping("/me")
+    public ResponseEntity<?> getCurrentUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String currentUsername = auth.getName();
+
+        return userRepository.findByUsername(currentUsername)
+                .map(user -> ResponseEntity.ok(Map.of(
+                    "username", user.getUsername(),
+                    "email", user.getEmail() != null ? user.getEmail() : "",
+                    "name", user.getName() != null ? user.getName() : user.getUsername(),
+                    "role", (user.getRoles() != null && !user.getRoles().isEmpty())
+                            ? user.getRoles().get(0).name() : ""
+                )))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
+    }
+
+    /**
+     * GET /api/users/{id}: get user by ID (ADMIN only)
      */
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
@@ -161,6 +182,8 @@ public class UserController {
 
         return ResponseEntity.ok(toResponse(savedUser));
     }
+
+
 
     /**
      * POST /api/users/me/fcm-token: Update current user's FCM token for push notifications

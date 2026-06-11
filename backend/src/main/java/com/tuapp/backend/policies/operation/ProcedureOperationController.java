@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/operations")
@@ -62,10 +63,27 @@ public class ProcedureOperationController {
         return ResponseEntity.ok(service.acceptTask(taskId, username(authentication)));
     }
 
+    @PostMapping("/procedures/{procedureId}/tasks/{taskId}/files")
+    @PreAuthorize("hasRole('OPERATOR') or hasRole('ADMIN')")
+    public ResponseEntity<Map<String, String>> uploadTaskFile(
+            @PathVariable String procedureId,
+            @PathVariable String taskId,
+            @RequestParam("fieldId") String fieldId,
+            @RequestParam("file") MultipartFile file,
+            Authentication authentication) {
+        return ResponseEntity.ok(service.uploadTaskFile(procedureId, taskId, fieldId, file, username(authentication)));
+    }
+
     @PostMapping("/tasks/{taskId}/complete")
     @PreAuthorize("hasRole('OPERATOR') or hasRole('ADMIN')")
     public ResponseEntity<ProcedureTaskDocument> completeTask(@PathVariable String taskId, @RequestBody CompleteTaskRequest request, Authentication authentication) {
         return ResponseEntity.ok(service.completeTask(taskId, request, username(authentication)));
+    }
+
+    @PostMapping("/tasks/{taskId}/save-draft")
+    @PreAuthorize("hasRole('OPERATOR') or hasRole('ADMIN')")
+    public ResponseEntity<ProcedureTaskDocument> saveTaskDraft(@PathVariable String taskId, @RequestBody CompleteTaskRequest request, Authentication authentication) {
+        return ResponseEntity.ok(service.saveTaskDraft(taskId, request, username(authentication)));
     }
 
     @GetMapping("/notifications/mine")

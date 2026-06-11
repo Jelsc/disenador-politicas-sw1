@@ -23,7 +23,7 @@ public class DepartmentController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN') or hasRole('DESIGNER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DESIGNER', 'OPERATOR')")
     public ResponseEntity<List<DepartmentResponse>> listDepartments() {
         Iterable<Department> departments = departmentRepository.findAll();
         List<DepartmentResponse> response = new ArrayList<>();

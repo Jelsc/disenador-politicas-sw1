@@ -184,7 +184,7 @@ class FormAssistResponse(BaseModel):
     transcript: str
     source: Literal["text", "audio", "empty"]
     confidence: float
-    modelSource: Literal["tensorflow", "ollama"]
+    modelSource: Literal["tensorflow", "ollama", "azure", "heuristic"]
     suggestedFields: list[dict[str, Any]]
     missingFields: list[str] = Field(default_factory=list)
     clarification: str | None = None

@@ -35,6 +35,7 @@ public class PolicyController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('DESIGNER', 'ADMIN', 'OPERATOR')")
     public ResponseEntity<List<Policy>> getAllPolicies(Authentication authentication) {
         return ResponseEntity.ok(policyService.getAllPolicies(username(authentication), isAdmin(authentication)));
     }
@@ -45,6 +46,7 @@ public class PolicyController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('DESIGNER', 'ADMIN', 'OPERATOR')")
     public ResponseEntity<Policy> getPolicyById(@PathVariable String id, Authentication authentication) {
         return ResponseEntity.ok(policyService.getPolicyById(id, username(authentication), isAdmin(authentication)));
     }
@@ -68,6 +70,7 @@ public class PolicyController {
     }
 
     @GetMapping("/pending-invitations")
+    @PreAuthorize("hasAnyRole('DESIGNER', 'ADMIN', 'OPERATOR')")
     public ResponseEntity<List<PolicyInvitationNotificationResponse>> getPendingInvitations(Authentication authentication) {
         return ResponseEntity.ok(policyService.getPendingInvitations(username(authentication)));
     }

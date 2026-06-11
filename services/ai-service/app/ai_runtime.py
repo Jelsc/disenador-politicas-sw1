@@ -532,7 +532,7 @@ class AICoreRuntime:
             "context": request.get("context") or {},
             "formFields": request.get("formFields") or [],
             "predictions": predictions,
-            "instruction": "Return JSON strict with suggestedFields, missingFields and clarification.",
+            "instruction": "Return JSON strict with suggestedFields (array of objects with fieldId and suggestedValue), missingFields (array of strings) and clarification.",
         }
         data, form_source = self._chat_json(
             "Sos un asistente de formulario. Devolvé JSON estricto con campos sugeridos y faltantes.",

@@ -10,6 +10,7 @@ import '../models/ai_request_draft.dart';
 import '../models/client_notification.dart';
 import '../models/procedure_ticket.dart';
 import '../services/api_service.dart';
+import 'account_screen.dart';
 import 'ai_request_screen.dart';
 import 'login_screen.dart';
 import 'notifications_screen.dart';
@@ -249,6 +250,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F1E8),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => AiRequestScreen(apiService: _api)),
+          );
+        },
+        backgroundColor: const Color(0xFF7c3aed),
+        foregroundColor: Colors.white,
+        tooltip: 'Asistente IA',
+        child: const Icon(Icons.auto_awesome),
+      ),
       appBar: AppBar(
         backgroundColor: const Color(0xFFF6F1E8),
         foregroundColor: const Color(0xFF2F2A24),
@@ -262,14 +275,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: 'Solicitudes IA',
+            tooltip: 'Mi cuenta',
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => AiRequestScreen(apiService: _api)),
+                MaterialPageRoute(builder: (_) => const AccountScreen()),
               );
             },
-            icon: const Icon(Icons.auto_awesome_outlined),
+            icon: const Icon(Icons.person_outline),
           ),
           IconButton(
             tooltip: 'Notificaciones',

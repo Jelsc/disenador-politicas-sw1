@@ -12,8 +12,11 @@ import com.tuapp.backend.users.domain.DepartmentRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.tuapp.backend.users.domain.UserRepository;
 import com.tuapp.backend.shared.infrastructure.notifications.PushNotificationService;
+import com.tuapp.backend.documents.application.DocumentRepositoryService;
+import com.tuapp.backend.documents.domain.DocumentVersionDocument;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
@@ -36,8 +39,9 @@ public class ProcedureOperationService {
     private final ObjectMapper objectMapper;
     private final PasswordEncoder passwordEncoder;
     private final PushNotificationService pushNotificationService;
+    private final DocumentRepositoryService documentRepositoryService;
 
-    public ProcedureOperationService(PolicyService policyService, UserRepository userRepository, ProcedureMongoRepository procedureRepository, ProcedureTaskMongoRepository taskRepository, ProcedureNotificationMongoRepository notificationRepository, DepartmentRepository departmentRepository, ObjectMapper objectMapper, PasswordEncoder passwordEncoder, PushNotificationService pushNotificationService) {
+    public ProcedureOperationService(PolicyService policyService, UserRepository userRepository, ProcedureMongoRepository procedureRepository, ProcedureTaskMongoRepository taskRepository, ProcedureNotificationMongoRepository notificationRepository, DepartmentRepository departmentRepository, ObjectMapper objectMapper, PasswordEncoder passwordEncoder, PushNotificationService pushNotificationService, DocumentRepositoryService documentRepositoryService) {
         this.policyService = policyService;
         this.userRepository = userRepository;
         this.procedureRepository = procedureRepository;
@@ -47,6 +51,7 @@ public class ProcedureOperationService {
         this.objectMapper = objectMapper;
         this.passwordEncoder = passwordEncoder;
         this.pushNotificationService = pushNotificationService;
+        this.documentRepositoryService = documentRepositoryService;
     }
 
     public Map<String, Object> currentUserContext(String username) {
@@ -156,6 +161,23 @@ public class ProcedureOperationService {
         return taskRepository.save(task);
     }
 
+    public Map<String, String> uploadTaskFile(String procedureId, String taskId, String fieldId, MultipartFile file, String username) {
+        ProcedureTaskDocument task = requireTask(taskId);
+        if (!procedureId.equals(task.getProcedureId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La tarea no pertenece a este trámite.");
+        }
+        if (!username.equals(task.getAssignedTo())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo quien aceptó la tarea puede subir archivos.");
+        }
+        DocumentVersionDocument saved = documentRepositoryService.uploadTaskEvidence(procedureId, file, fieldId, username);
+        return Map.of(
+            "fileName", saved.getOriginalFileName(),
+            "fileDownloadUri", "/api/procedures/" + procedureId + "/documents/" + saved.getDocumentId() + "/versions/" + saved.getVersion(),
+            "fileType", saved.getContentType(),
+            "size", String.valueOf(saved.getSize())
+        );
+    }
+
     public ProcedureTaskDocument completeTask(String taskId, CompleteTaskRequest request, String username) {
         ProcedureTaskDocument task = requireTask(taskId);
         if (!username.equals(task.getAssignedTo())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo quien aceptó la tarea puede completarla.");
@@ -163,6 +185,8 @@ public class ProcedureOperationService {
         task.setFormValues(request.getValues() == null ? new HashMap<>() : request.getValues());
         task.setCompletedAt(LocalDateTime.now());
         ProcedureTaskDocument saved = taskRepository.save(task);
+
+
         ProcedureDocument procedure = procedureRepository.findById(task.getProcedureId()).orElseThrow();
         notifySignatureRequests(procedure, saved);
         notifyClientByCi(procedure.getClientCi(),
@@ -537,6 +561,13 @@ public class ProcedureOperationService {
         for (JsonNode node : rules.path("nodes")) if (id.equals(node.path("id").asText())) return node;
         return null;
     }
+    public ProcedureTaskDocument saveTaskDraft(String taskId, CompleteTaskRequest request, String username) {
+        ProcedureTaskDocument task = requireTask(taskId);
+        if (!username.equals(task.getAssignedTo())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo quien aceptó la tarea puede guardar borradores.");
+        task.setFormValues(request.getValues() == null ? new HashMap<>() : request.getValues());
+        return taskRepository.save(task);
+    }
+
 
     private JsonNode rules(Policy policy) {
         try { return objectMapper.readTree(policy.getRules() == null ? "{}" : policy.getRules()); }
