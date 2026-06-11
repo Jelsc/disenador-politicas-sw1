@@ -272,9 +272,34 @@
               [title]="selectedFormFieldId() === field.id ? 'Clic para deseleccionar y volver a configuración general' : 'Clic para configurar este campo'">
               <div>
                 <strong>{{ field.label }}</strong>
-                <p>{{ formFieldLabel(field.type) }}<span *ngIf="field.required"> · Obligatorio</span><span
-                    *ngIf="field.usedForDecision"> ·
+                <p>{{ formFieldLabel(field.type) }}<span *ngIf="field.required"> • Obligatorio</span><span
+                    *ngIf="field.usedForDecision"> •
                     Usado por decisión</span></p>
+
+                <!-- WYSIWYG Editor for TABLE -->
+                <div class="table-wysiwyg-preview" style="overflow-x: auto; margin-top: 15px; margin-bottom: 5px;" *ngIf="field.type === 'TABLE'">
+                  <table class="data-table" (click)="$event.stopPropagation()">
+                    <thead>
+                      <tr>
+                        <th><input type="text" class="header-input" disabled value="#" style="width: 40px; text-align: center; cursor: not-allowed;" /></th>
+                        <th *ngFor="let col of (field.tableColumns || ['', '']); let c = index; trackBy: trackByIndex">
+                          <input type="text" class="header-input" [ngModel]="col" (ngModelChange)="updateTableColumnName(field, c, $event)" [readOnly]="editingBlocked()" placeholder="Columna {{c+1}}" />
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let row of (field.matrixRows || ['', '']); let r = index; trackBy: trackByIndex">
+                        <td>
+                          <input type="text" class="header-input" [ngModel]="row" (ngModelChange)="updateTableRowName(field, r, $event)" [readOnly]="editingBlocked()" placeholder="Fila {{r+1}}" />
+                        </td>
+                        <td *ngFor="let col of (field.tableColumns || ['', '']); let c = index; trackBy: trackByIndex">
+                          <div class="empty-cell-placeholder" style="background: transparent;"></div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
               </div>
               <div class="field-card-actions">
                 <button type="button" [disabled]="i === 0 || editingBlocked()"
@@ -400,29 +425,6 @@
               <div class="table-dimensions">
                 <label>Columnas: <input type="number" class="config-input-inline" [ngModel]="(field.tableColumns?.length || 2)" #colsInput (change)="initializeTableDimensions(field, rowsInput.valueAsNumber || (field.matrixRows?.length || 2), colsInput.valueAsNumber || (field.tableColumns?.length || 2))" [readOnly]="editingBlocked()" min="1" max="10"/></label>
                 <label>Filas: <input type="number" class="config-input-inline" [ngModel]="(field.matrixRows?.length || 2)" #rowsInput (change)="initializeTableDimensions(field, rowsInput.valueAsNumber || (field.matrixRows?.length || 2), colsInput.valueAsNumber || (field.tableColumns?.length || 2))" [readOnly]="editingBlocked()" min="1" max="20"/></label>
-              </div>
-              
-              <div class="table-wysiwyg-preview" style="overflow-x: auto; margin-top: 10px;">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th><input type="text" class="header-input" disabled value="#" style="width: 40px; text-align: center;" /></th>
-                      <th *ngFor="let col of (field.tableColumns || ['', '']); let c = index">
-                        <input type="text" class="header-input" [ngModel]="col" (ngModelChange)="updateTableColumnName(field, c, $event)" [readOnly]="editingBlocked()" placeholder="Columna {{c+1}}" />
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr *ngFor="let row of (field.matrixRows || ['', '']); let r = index">
-                      <td>
-                        <input type="text" class="header-input" [ngModel]="row" (ngModelChange)="updateTableRowName(field, r, $event)" [readOnly]="editingBlocked()" placeholder="Fila {{r+1}}" />
-                      </td>
-                      <td *ngFor="let col of (field.tableColumns || ['', '']); let c = index">
-                        <div class="empty-cell-placeholder"></div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
               </div>
             </ng-container>
           </ng-container>

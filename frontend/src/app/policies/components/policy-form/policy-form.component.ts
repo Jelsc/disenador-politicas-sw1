@@ -138,6 +138,15 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
   selectedNode = signal<BoardNode | null>(null);
   taskFormEditorNodeId = signal<string | null>(null);
   selectedFormFieldId = signal<string | null>(null);
+  aiPrompt = signal('');
+  aiGenerating = signal(false);
+
+  trackByIndex(index: number, obj: any): any {
+    return index;
+  }
+
+  // Board configuration
+  validationMessage = signal('');
   zoom = signal(1);
   isPanningBoard = signal(false);
   validationMessage = signal('');
