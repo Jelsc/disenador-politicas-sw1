@@ -56,7 +56,7 @@ void main() {
       progressPercentage: 60,
       currentDepartments: const ['Legal'],
       currentTasks: const ['Revisión documental'],
-      pendingSignatureRequests: const [],
+      pendingSignatureRequests: const [], pendingClientTasks: const [],
       createdAt: DateTime(2026, 6, 1, 9, 0),
     );
 
@@ -88,7 +88,7 @@ void main() {
       progressPercentage: 60,
       currentDepartments: const ['Legal'],
       currentTasks: const ['Revisión documental'],
-      pendingSignatureRequests: const [],
+      pendingSignatureRequests: const [], pendingClientTasks: const [],
       createdAt: DateTime(2026, 6, 1, 9, 0),
     );
 

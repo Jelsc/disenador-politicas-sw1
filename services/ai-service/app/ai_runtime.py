@@ -532,7 +532,7 @@ class AICoreRuntime:
             "context": request.get("context") or {},
             "formFields": request.get("formFields") or [],
             "predictions": predictions,
-            "instruction": "Return JSON strict with suggestedFields (array of objects with fieldId and suggestedValue), missingFields (array of strings) and clarification.",
+            "instruction": "Return JSON strict with suggestedFields (array of objects with fieldId EXACTLY as provided in formFields, and suggestedValue), missingFields (array of fieldId strings) and clarification.",
         }
         data, form_source = self._chat_json(
             "Sos un asistente de formulario. Devolvé JSON estricto con campos sugeridos y faltantes.",
@@ -547,11 +547,43 @@ class AICoreRuntime:
             label = str(item.get("label") or field_id or "Field").strip()
             field_type = str(item.get("type") or "SHORT_TEXT").upper()
             suggested_value = item.get("suggestedValue")
-            if suggested_value is None or (isinstance(suggested_value, str) and not suggested_value.strip()):
-                suggested_value = label
+            if suggested_value is None:
+                suggested_value = ""
+            
+            # Map field ID if the LLM returned a label instead of ID
+            form_fields = request.get("formFields") or []
+            matched_field_id = field_id
+            
+            clean_field_id = field_id.replace('*', '').strip().lower()
+            clean_label = label.replace('*', '').strip().lower()
+
+            print(f"DEBUG field_id={field_id}, label={label}")
+            print(f"DEBUG form_fields={form_fields}")
+
+            for ff in form_fields:
+                if isinstance(ff, dict):
+                    ff_id = str(ff.get("id") or "")
+                    ff_label = str(ff.get("label") or "")
+                    
+                    clean_ff_id = ff_id.replace('*', '').strip().lower()
+                    clean_ff_label = ff_label.replace('*', '').strip().lower()
+
+                    if (
+                        field_id == ff_id or
+                        clean_field_id == clean_ff_id or
+                        clean_label == clean_ff_label or
+                        (clean_ff_label and clean_ff_label in clean_label) or
+                        (clean_label and clean_label in clean_ff_label)
+                    ):
+                        matched_field_id = ff_id
+                        print(f"DEBUG MATCHED! matched_field_id={matched_field_id}")
+                        break
+            if not matched_field_id or matched_field_id == field_id:
+                print(f"DEBUG UNMATCHED! kept matched_field_id={matched_field_id}")
+
             normalized_suggested_fields.append(
                 {
-                    "fieldId": field_id or label,
+                    "fieldId": matched_field_id or label,
                     "label": label,
                     "type": field_type,
                     "suggestedValue": suggested_value,
@@ -579,6 +611,51 @@ class AICoreRuntime:
             "missingFields": normalized_missing_fields,
             "clarification": data.get("clarification") if isinstance(data.get("clarification"), str) or data.get("clarification") is None else None,
         }
+
+    def client_ask(self, request: dict[str, Any]) -> dict[str, Any]:
+        transcript = self._resolve_transcript(request.get("text"), request.get("audioBase64"))
+        policies = request.get("policies") or []
+        
+        if not transcript:
+            return {
+                "suggestedPolicyId": None,
+                "answer": "No pude escuchar ni leer tu mensaje. ¿Podés intentar de nuevo?",
+                "confidence": 0.0,
+                "modelSource": "empty",
+                "transcript": ""
+            }
+            
+        payload = {
+            "transcript": transcript,
+            "availablePolicies": policies,
+            "instruction": "Select the best policy from 'availablePolicies' that matches the user's transcript. Return strict JSON with 'suggestedPolicyId' (the id of the chosen policy, or null if none match), and 'answer' (a friendly message helping the user in Spanish)."
+        }
+        
+        system_prompt = (
+            "Sos un asistente virtual inteligente diseñado para ayudar a ciudadanos a encontrar el trámite público correcto. "
+            "El usuario te enviará su consulta y una lista de trámites disponibles (`availablePolicies`). "
+            "Devolvé JSON estricto con las claves: "
+            "`suggestedPolicyId` (el ID exacto del trámite que mejor coincida, o null si ninguno sirve), y "
+            "`answer` (una respuesta muy amigable, empática y conversacional en español indicando el trámite sugerido o pidiendo más detalles)."
+        )
+        
+        try:
+            data, source = self._chat_json(system_prompt, payload)
+            return {
+                "suggestedPolicyId": data.get("suggestedPolicyId"),
+                "answer": data.get("answer") or "No estoy seguro de cuál trámite necesitás. ¿Podés darme más detalles?",
+                "confidence": float(data.get("confidence") or 0.8),
+                "modelSource": source,
+                "transcript": transcript,
+            }
+        except Exception as e:
+            return {
+                "suggestedPolicyId": None,
+                "answer": f"Hubo un error al procesar tu solicitud con IA: {str(e)}",
+                "confidence": 0.0,
+                "modelSource": "error",
+                "transcript": transcript,
+            }
 
     def _resolve_transcript(self, text: str | None, audio_base64: str | None) -> str:
         if text and str(text).strip():

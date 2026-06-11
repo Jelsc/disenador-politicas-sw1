@@ -10,6 +10,7 @@ class ProcedureTicket {
   final List<String> currentTasks;
   final String? finalObservation;
   final List<SignatureRequest> pendingSignatureRequests;
+  final List<ProcedureClientTask> pendingClientTasks;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final DateTime? completedAt;
@@ -26,6 +27,7 @@ class ProcedureTicket {
     required this.currentTasks,
     this.finalObservation,
     required this.pendingSignatureRequests,
+    required this.pendingClientTasks,
     required this.createdAt,
     this.updatedAt,
     this.completedAt,
@@ -50,6 +52,13 @@ class ProcedureTicket {
                     SignatureRequest.fromJson(Map<String, dynamic>.from(item)),
               )
               .toList(),
+      pendingClientTasks:
+          (json['pendingClientTasks'] as List<dynamic>? ?? [])
+              .map(
+                (item) =>
+                    ProcedureClientTask.fromJson(Map<String, dynamic>.from(item)),
+              )
+              .toList(),
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'])
           : DateTime.now(),
@@ -59,6 +68,54 @@ class ProcedureTicket {
       completedAt: json['completedAt'] != null
           ? DateTime.parse(json['completedAt'])
           : null,
+    );
+  }
+}
+
+class ProcedureClientTask {
+  final String id;
+  final String label;
+  final List<ClientTaskField> fields;
+
+  ProcedureClientTask({
+    required this.id,
+    required this.label,
+    required this.fields,
+  });
+
+  factory ProcedureClientTask.fromJson(Map<String, dynamic> json) {
+    return ProcedureClientTask(
+      id: json['id'] ?? '',
+      label: json['nodeLabel'] ?? 'Tarea pendiente',
+      fields: (json['formFields'] as List<dynamic>? ?? [])
+          .map((item) => ClientTaskField.fromJson(Map<String, dynamic>.from(item)))
+          .toList(),
+    );
+  }
+}
+
+class ClientTaskField {
+  final String id;
+  final String type;
+  final String label;
+  final bool required;
+  final String? placeholder;
+
+  ClientTaskField({
+    required this.id,
+    required this.type,
+    required this.label,
+    required this.required,
+    this.placeholder,
+  });
+
+  factory ClientTaskField.fromJson(Map<String, dynamic> json) {
+    return ClientTaskField(
+      id: json['id'] ?? '',
+      type: json['type'] ?? 'TEXT',
+      label: json['label'] ?? '',
+      required: json['required'] ?? false,
+      placeholder: json['placeholder'],
     );
   }
 }

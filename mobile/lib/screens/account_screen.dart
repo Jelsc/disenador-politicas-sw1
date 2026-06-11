@@ -14,7 +14,7 @@ class _AccountScreenState extends State<AccountScreen> {
   final _api = ApiService();
   bool _isLoading = true;
   bool _isChangingPassword = false;
-  bool _passwordChanged = false;
+  
   String? _errorMessage;
   String? _successMessage;
 

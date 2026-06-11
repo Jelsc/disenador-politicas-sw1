@@ -313,6 +313,10 @@ public class ProcedureOperationService {
             }
         }
 
+        List<ProcedureTaskDocument> pendingClientTasks = tasks.stream()
+            .filter(t -> !"COMPLETED".equals(t.getStatus()) && ("CLIENT_TASK".equals(t.getTaskType()) || (proc.getClientCi() != null && proc.getClientCi().equals(t.getAssignedTo()))))
+            .toList();
+
         return ProcedureTrackingResponse.builder()
             .id(proc.getId())
             .policyId(proc.getPolicyId())
@@ -329,6 +333,7 @@ public class ProcedureOperationService {
             .currentTasks(currentTaskNames)
             .finalObservation(observation)
             .pendingSignatureRequests(pendingSignatureRequests(tasks))
+            .pendingClientTasks(pendingClientTasks)
             .build();
     }
 
@@ -411,17 +416,21 @@ public class ProcedureOperationService {
         if (taskRepository.existsByProcedureIdAndNodeId(procedure.getId(), nodeId)) return;
         
         List<Map<String, Object>> fields = formFields(node);
+        boolean isClientTask = "CLIENT".equals(node.path("config").path("executor").asText(""));
+        
         ProcedureTaskDocument task = taskRepository.save(ProcedureTaskDocument.builder()
                 .procedureId(procedure.getId())
                 .policyId(policy.getId())
                 .nodeId(nodeId)
                 .nodeLabel(node.path("label").asText("Tarea"))
                 .nodeType(node.path("type").asText("TASK"))
-                .taskType(node.path("config").path("taskType").asText("TASK"))
+                .taskType(isClientTask ? "CLIENT_TASK" : node.path("config").path("taskType").asText("TASK"))
                 .departmentId(node.path("departmentId").asText())
                 .formTitle(node.path("config").path("form").path("title").asText(node.path("label").asText("Formulario")))
                 .formFields(fields)
-                .status("PENDING")
+                .status(isClientTask ? "ASSIGNED" : "PENDING")
+                .assignedTo(isClientTask ? procedure.getClientName() : null)
+                .assignedAt(isClientTask ? LocalDateTime.now() : null)
                 .createdAt(LocalDateTime.now())
                 .build());
 

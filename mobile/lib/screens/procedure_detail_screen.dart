@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/procedure_ticket.dart';
 import '../services/api_service.dart';
 import 'signature_capture_screen.dart';
+import 'repository_screen.dart';
+import 'client_task_screen.dart';
 
 typedef ProcedureDocumentPicker = Future<SelectedProcedureDocument?> Function();
 
@@ -42,10 +44,6 @@ class ProcedureDetailScreen extends StatefulWidget {
 class _ProcedureDetailScreenState extends State<ProcedureDetailScreen> {
   bool _isUploadingSignature = false;
   Uint8List? _lastSignature;
-  bool _loadingDocuments = true;
-  bool _uploadingDocument = false;
-  String? _documentError;
-  List<ProcedureRepositoryDocument> _documents = [];
 
   ApiService get _api => widget.apiService ?? ApiService();
 
@@ -78,72 +76,6 @@ class _ProcedureDetailScreenState extends State<ProcedureDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _loadDocumentRepository();
-  }
-
-  Future<void> _loadDocumentRepository() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-    if (token == null) {
-      if (!mounted) return;
-      setState(() {
-        _loadingDocuments = false;
-        _documentError = 'No se encontró la sesión para consultar documentos.';
-      });
-      return;
-    }
-
-    final documents = await _api.getProcedureDocuments(token, widget.procedure.id);
-    if (!mounted) return;
-    setState(() {
-      _documents = documents;
-      _loadingDocuments = false;
-      _documentError = null;
-    });
-  }
-
-  Future<void> _pickAndUploadDocument() async {
-    final picker = widget.documentPicker ?? _defaultDocumentPicker;
-    final selected = await picker();
-    if (selected == null) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-    if (token == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se encontró la sesión para subir documentos.')),
-      );
-      return;
-    }
-
-    setState(() => _uploadingDocument = true);
-    final success = await _api.uploadProcedureDocument(
-      token: token,
-      procedureId: widget.procedure.id,
-      fileName: selected.fileName,
-      bytes: selected.bytes,
-    );
-    if (!mounted) return;
-    setState(() => _uploadingDocument = false);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(success ? 'Documento cargado correctamente.' : 'No se pudo cargar el documento.'),
-        backgroundColor: success ? const Color(0xFF166534) : Colors.red,
-      ),
-    );
-    if (success) {
-      setState(() => _loadingDocuments = true);
-      await _loadDocumentRepository();
-    }
-  }
-
-  Future<SelectedProcedureDocument?> _defaultDocumentPicker() async {
-    final result = await FilePicker.platform.pickFiles(withData: true);
-    final file = result == null || result.files.isEmpty ? null : result.files.first;
-    if (file == null || file.bytes == null) return null;
-    return SelectedProcedureDocument(fileName: file.name, bytes: file.bytes!);
   }
 
   Future<void> _submitSignature(
@@ -201,16 +133,69 @@ class _ProcedureDetailScreenState extends State<ProcedureDetailScreen> {
           const SizedBox(height: 14),
           _trackingCard(proc),
           const SizedBox(height: 14),
+          _clientTasksCard(proc),
+          const SizedBox(height: 14),
           _documentRepositoryCard(),
           const SizedBox(height: 14),
           if (signature != null)
-            _signatureCard(signature)
-          else
-            _noSignatureCard(),
+            _signatureCard(signature),
           if (_lastSignature != null) ...[
             const SizedBox(height: 14),
             _signaturePreview(),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _clientTasksCard(ProcedureTicket proc) {
+    if (proc.pendingClientTasks.isEmpty) {
+      return _surface(
+        child: const Row(
+          children: [
+            Icon(Icons.verified_outlined, color: Color(0xFF166534)),
+            SizedBox(width: 10),
+            Expanded(child: Text('No tenés tareas pendientes en este trámite.')),
+          ],
+        ),
+      );
+    }
+
+    return _surface(
+      accent: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.assignment_late_outlined, color: Color(0xFF92400E)),
+              SizedBox(width: 10),
+              Text(
+                'Tareas pendientes',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text('Tenés ${proc.pendingClientTasks.length} tarea(s) pendiente(s) que requieren tu atención.'),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ClientTaskScreen(
+                    procedure: proc,
+                    task: proc.pendingClientTasks.first,
+                  ),
+                ),
+              ).then((value) {
+                // Return value indicates success, could trigger refresh
+              });
+            },
+            icon: const Icon(Icons.edit_document),
+            label: const Text('Completar tareas'),
+          ),
         ],
       ),
     );
@@ -232,71 +217,22 @@ class _ProcedureDetailScreenState extends State<ProcedureDetailScreen> {
             ],
           ),
           const SizedBox(height: 12),
+          const Text('Accedé a todos los documentos subidos y generados durante este trámite.'),
+          const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: _uploadingDocument ? null : _pickAndUploadDocument,
-            icon: _uploadingDocument
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.upload_file_outlined),
-            label: Text(_uploadingDocument ? 'Cargando...' : 'Subir documento'),
-          ),
-          const SizedBox(height: 12),
-          if (_loadingDocuments)
-            const Center(child: CircularProgressIndicator())
-          else if (_documentError != null)
-            Text(_documentError!, style: const TextStyle(color: Colors.red))
-          else if (_documents.isEmpty)
-            const Text('Todavía no hay documentos visibles para este trámite.')
-          else
-            ..._documents.map(_documentRow),
-        ],
-      ),
-    );
-  }
-
-  Widget _documentRow(ProcedureRepositoryDocument document) {
-    final createdAt = document.createdAt != null
-        ? DateFormat('dd/MM/yyyy HH:mm').format(document.createdAt!)
-        : 'Sin fecha';
-    final sizeKb = (document.size / 1024).toStringAsFixed(1);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE3D8C5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.description_outlined, color: Color(0xFF6D5A3D)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  document.originalFileName,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => RepositoryScreen(procedure: widget.procedure),
                 ),
-              ),
-              Text('v${document.version}', style: const TextStyle(fontWeight: FontWeight.w700)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text('Trazabilidad: ${document.traceAction ?? 'SIN_ACCION'}'),
-          if (document.traceNote != null && document.traceNote!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(document.traceNote!),
+              );
+            },
+            icon: const Icon(Icons.open_in_new_outlined),
+            label: const Text('Abrir repositorio'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF7C4A20),
             ),
-          const SizedBox(height: 6),
-          Text(
-            'Registrado por ${document.createdBy ?? 'desconocido'} · $createdAt · $sizeKb KB',
-            style: const TextStyle(color: Color(0xFF7B7063), fontSize: 12),
           ),
         ],
       ),
@@ -421,15 +357,7 @@ class _ProcedureDetailScreenState extends State<ProcedureDetailScreen> {
   }
 
   Widget _noSignatureCard() {
-    return _surface(
-      child: const Row(
-        children: [
-          Icon(Icons.verified_outlined, color: Color(0xFF166534)),
-          SizedBox(width: 10),
-          Expanded(child: Text('No tenés firmas pendientes en este trámite.')),
-        ],
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   Widget _signaturePreview() {

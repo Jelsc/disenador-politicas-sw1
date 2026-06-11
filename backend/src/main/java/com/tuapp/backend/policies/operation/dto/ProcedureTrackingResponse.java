@@ -30,4 +30,5 @@ public class ProcedureTrackingResponse {
     private List<String> currentTasks;
     private String finalObservation;
     private List<Map<String, Object>> pendingSignatureRequests;
+    private List<com.tuapp.backend.policies.operation.ProcedureTaskDocument> pendingClientTasks;
 }

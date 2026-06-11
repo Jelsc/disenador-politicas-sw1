@@ -206,6 +206,59 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> askAiAssistant({
+    required String token,
+    String? message,
+    String? audioBase64,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/ai/client/ask'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          if (message != null && message.isNotEmpty) 'text': message,
+          if (audioBase64 != null && audioBase64.isNotEmpty) 'audioBase64': audioBase64,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return {'answer': 'No pude procesar tu consulta en este momento.'};
+    } catch (e) {
+      return {'answer': 'Error de conexión: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> confirmAiTicket({
+    required String token,
+    required String policyId,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/ai/client/confirm-ticket'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'policyId': policyId}),
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return {
+        'success': false,
+        'message': 'No se pudo crear el trámite (${response.statusCode})',
+      };
+    } catch (e) {
+      return {'success': false, 'message': 'Error de conexión: $e'};
+    }
+  }
+
   Future<Map<String, dynamic>> submitAiVoiceIntake({
     String? text,
     String? audioBase64,
@@ -368,6 +421,46 @@ class ApiService {
 
       final response = await request.send();
       return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> completeProcedureTask(String token, String taskId, Map<String, dynamic> formValues) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/operations/tasks/$taskId/complete'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({'formValues': formValues}),
+      );
+      return response.statusCode == 200 || response.statusCode == 201;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> uploadTaskDocument({
+    required String token,
+    required String procedureId,
+    required String taskId,
+    required String fieldId,
+    required String fileName,
+    required Uint8List bytes,
+  }) async {
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/operations/procedures/$procedureId/tasks/$taskId/files?fieldId=$fieldId'),
+      );
+      request.headers['Authorization'] = 'Bearer $token';
+      request.files.add(
+        http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+      );
+      final response = await request.send();
+      return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
       return false;
     }

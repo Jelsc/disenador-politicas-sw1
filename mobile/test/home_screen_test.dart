@@ -49,6 +49,7 @@ void main() {
           taskLabel: 'Validación final',
         ),
       ],
+      pendingClientTasks: const [],
       createdAt: DateTime(2026, 6, 1, 9, 0),
     );
   }

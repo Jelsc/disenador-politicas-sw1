@@ -64,6 +64,21 @@ public class DocumentRepositoryService {
                         .build());
     }
 
+    public void inheritSettingsFromPolicy(String procedureId, String policyId) {
+        settingsRepository.findById(policyId).ifPresent(policySettings -> {
+            DocumentRepositorySettingsDocument procedureSettings = DocumentRepositorySettingsDocument.builder()
+                    .procedureId(procedureId)
+                    .policyId(policyId)
+                    .allowedRoles(policySettings.getAllowedRoles())
+                    .allowedFormats(policySettings.getAllowedFormats())
+                    .maxFileSizeMb(policySettings.getMaxFileSizeMb())
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
+            settingsRepository.save(procedureSettings);
+        });
+    }
+
     public List<DocumentVersionDocument> listLatestDocuments(String procedureId, String role, String username, boolean admin) {
         DocumentRepositorySettingsDocument settings = getSettings(procedureId);
         ensureCanRead(settings, role, username, admin);

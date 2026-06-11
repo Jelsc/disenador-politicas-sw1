@@ -179,6 +179,18 @@ class FormAssistRequest(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
     formFields: list[dict[str, Any]] = Field(default_factory=list)
 
+class ClientAskRequest(BaseModel):
+    text: str | None = None
+    audioBase64: str | None = None
+    policies: list[dict[str, Any]] = Field(default_factory=list)
+
+class ClientAskResponse(BaseModel):
+    suggestedPolicyId: str | None = None
+    answer: str
+    confidence: float
+    modelSource: str
+    transcript: str | None = None
+
 
 class FormAssistResponse(BaseModel):
     transcript: str
@@ -620,6 +632,12 @@ def form_assist(request: FormAssistRequest) -> FormAssistResponse:
     runtime = get_ai_runtime(azure_client=_get_azure_client())
     result = runtime.form_assist(request.model_dump())
     return FormAssistResponse(**result)
+
+@app.post("/client/ask", response_model=ClientAskResponse)
+def client_ask(request: ClientAskRequest) -> ClientAskResponse:
+    runtime = get_ai_runtime(azure_client=_get_azure_client())
+    result = runtime.client_ask(request.model_dump())
+    return ClientAskResponse(**result)
 
 
 def transcribe_input(text: str | None, audio_base64: str | None) -> tuple[str, Literal["text", "audio", "empty"], float]:
