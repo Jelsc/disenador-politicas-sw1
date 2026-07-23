@@ -1142,11 +1142,10 @@ def collaborate_existing_flow(request: AssistantRequest, prompt: str, simulation
         changed = bool(added_department) or changed
         recommendations.insert(0, f"Agregué una tarea de revisión en {added_department}, conectada y reacomodada dentro del flujo actual.") if added_department else None
 
-    if not changed:
-        board_change = append_prompt_driven_flow_changes(proposed, request, prompt)
-        changed = bool(board_change) or changed
-        if board_change:
-            recommendations.insert(0, board_change)
+    board_change = append_prompt_driven_flow_changes(proposed, request, prompt)
+    changed = bool(board_change) or changed
+    if board_change:
+        recommendations.insert(0, board_change)
 
     answer = (
         f"Revisé el flujo actual: estado {simulation.status}. "
