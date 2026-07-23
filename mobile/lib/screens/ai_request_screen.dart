@@ -14,9 +14,12 @@ class AiRequestScreen extends StatefulWidget {
   final ApiService apiService;
   final AudioCaptureController audioRecorder;
 
-  AiRequestScreen({super.key, ApiService? apiService, AudioCaptureController? audioRecorder})
-      : apiService = apiService ?? ApiService(),
-        audioRecorder = audioRecorder ?? RecordAudioCaptureController();
+  AiRequestScreen({
+    super.key,
+    ApiService? apiService,
+    AudioCaptureController? audioRecorder,
+  }) : apiService = apiService ?? ApiService(),
+       audioRecorder = audioRecorder ?? RecordAudioCaptureController();
 
   @override
   State<AiRequestScreen> createState() => _AiRequestScreenState();
@@ -136,7 +139,9 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
     final hasPermission = await widget.audioRecorder.hasPermission();
     if (!hasPermission) {
       if (!mounted) return;
-      setState(() => _message = 'Necesitás habilitar el micrófono para grabar.');
+      setState(
+        () => _message = 'Necesitás habilitar el micrófono para grabar.',
+      );
       return;
     }
 
@@ -147,11 +152,11 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
       setState(() {
         _isRecording = true;
         _useAudioPayload = true;
-        _message = 'Grabando audio...';
+        _message = 'Escuchando...';
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _message = 'No se pudo iniciar la grabación.');
+      setState(() => _message = 'No se pudo iniciar.');
     }
   }
 
@@ -167,7 +172,7 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
       if (path == null || path.isEmpty) {
         setState(() {
           _isRecording = false;
-          _message = 'No se pudo recuperar el audio grabado.';
+          _message = 'No se pudo recuperar el audio.';
         });
         return;
       }
@@ -221,34 +226,46 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
 
     final result = switch (_mode) {
       AiRequestMode.intake => await widget.apiService.submitAiVoiceIntake(
-          text: _useAudioPayload ? null : text,
-          audioBase64: _useAudioPayload ? audioBase64 : null,
-          policyName: 'Solicitud móvil',
-          context: continuationContext,
-        ),
+        text: _useAudioPayload ? null : text,
+        audioBase64: _useAudioPayload ? audioBase64 : null,
+        policyName: 'Solicitud móvil',
+        context: continuationContext,
+      ),
       AiRequestMode.analyst => await widget.apiService.requestAiAnalystInsights(
-          requestText: text,
-          policyName: 'Solicitud móvil',
-        ),
+        requestText: text,
+        policyName: 'Solicitud móvil',
+      ),
       AiRequestMode.report => await widget.apiService.requestAiReportDraft(
-          text: text,
-          transcript: text,
-          policyName: 'Solicitud móvil',
-          context: continuationContext,
-        ),
+        text: text,
+        transcript: text,
+        policyName: 'Solicitud móvil',
+        context: continuationContext,
+      ),
       AiRequestMode.formAssist => await widget.apiService.requestAiFormAssist(
-          text: text,
-          policyName: 'Solicitud móvil',
-          context: {
-            'clientName': 'Solicitud móvil',
-            ...continuationContext,
+        text: text,
+        policyName: 'Solicitud móvil',
+        context: {'clientName': 'Solicitud móvil', ...continuationContext},
+        formFields: const [
+          {
+            'id': 'motivo',
+            'label': 'Motivo',
+            'type': 'LONG_TEXT',
+            'required': true,
           },
-          formFields: const [
-            {'id': 'motivo', 'label': 'Motivo', 'type': 'LONG_TEXT', 'required': true},
-            {'id': 'confirmacion', 'label': 'Confirmación', 'type': 'CHECKBOX', 'required': true},
-            {'id': 'firma', 'label': 'Firma', 'type': 'SIGNATURE', 'required': false},
-          ],
-        ),
+          {
+            'id': 'confirmacion',
+            'label': 'Confirmación',
+            'type': 'CHECKBOX',
+            'required': true,
+          },
+          {
+            'id': 'firma',
+            'label': 'Firma',
+            'type': 'SIGNATURE',
+            'required': false,
+          },
+        ],
+      ),
     };
 
     if (!mounted) return;
@@ -263,7 +280,8 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
       _draft = success ? null : _draft;
       _message = success
           ? 'Solicitud enviada correctamente.'
-          : result['message']?.toString() ?? 'No se pudo completar la solicitud.';
+          : result['message']?.toString() ??
+                'No se pudo completar la solicitud.';
     });
   }
 
@@ -292,10 +310,22 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
             initialValue: _mode,
             decoration: const InputDecoration(labelText: 'Tipo de solicitud'),
             items: const [
-              DropdownMenuItem(value: AiRequestMode.intake, child: Text('Intake / dictado')),
-              DropdownMenuItem(value: AiRequestMode.analyst, child: Text('Análisis')),
-              DropdownMenuItem(value: AiRequestMode.report, child: Text('Reporte')),
-              DropdownMenuItem(value: AiRequestMode.formAssist, child: Text('Asistencia de formulario')),
+              DropdownMenuItem(
+                value: AiRequestMode.intake,
+                child: Text('Intake / dictado'),
+              ),
+              DropdownMenuItem(
+                value: AiRequestMode.analyst,
+                child: Text('Análisis'),
+              ),
+              DropdownMenuItem(
+                value: AiRequestMode.report,
+                child: Text('Reporte'),
+              ),
+              DropdownMenuItem(
+                value: AiRequestMode.formAssist,
+                child: Text('Asistencia de formulario'),
+              ),
             ],
             onChanged: _loading
                 ? null
@@ -330,7 +360,9 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
                     _syncDraftFromFields();
                   },
             title: const Text('Usar payload de audio base64'),
-            subtitle: const Text('Activalo si querés continuar una captura de voz o probar el flujo sin grabar audio.'),
+            subtitle: const Text(
+              'Activalo si querés continuar una captura de voz o probar el flujo sin grabar audio.',
+            ),
           ),
           if (_useAudioPayload) ...[
             const SizedBox(height: 8),
@@ -340,7 +372,8 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
               maxLines: 4,
               decoration: const InputDecoration(
                 labelText: 'Audio base64',
-                hintText: 'Pegá el audio codificado en base64 o continuá la captura guardada...',
+                hintText:
+                    'Pegá el audio codificado en base64 o continuá la captura guardada...',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -369,7 +402,10 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
           ],
           if (_response != null) ...[
             const SizedBox(height: 16),
-            const Text('Respuesta', style: TextStyle(fontWeight: FontWeight.w700)),
+            const Text(
+              'Respuesta',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 8),
             if (_response?['policyAssignment'] != null ||
                 _response?['suggestedNextAction'] != null ||
@@ -382,17 +418,25 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (_response?['policyAssignment'] != null)
-                        Text('Policy assignment: ${_response?['policyAssignment']}'),
-                      if (_response?['route'] != null) Text('Route: ${_response?['route']}'),
-                      if (_response?['reportType'] != null) Text('Report type: ${_response?['reportType']}'),
+                        Text(
+                          'Policy assignment: ${_response?['policyAssignment']}',
+                        ),
+                      if (_response?['route'] != null)
+                        Text('Route: ${_response?['route']}'),
+                      if (_response?['reportType'] != null)
+                        Text('Report type: ${_response?['reportType']}'),
                       if (_response?['suggestedNextAction'] != null)
-                        Text('Next action: ${_response?['suggestedNextAction']}'),
-                      if (_response?['confidence'] != null) Text('Confidence: ${_response?['confidence']}'),
+                        Text(
+                          'Next action: ${_response?['suggestedNextAction']}',
+                        ),
+                      if (_response?['confidence'] != null)
+                        Text('Confidence: ${_response?['confidence']}'),
                     ],
                   ),
                 ),
               ),
-            if (_response?['suggestedFields'] is List && (_response?['suggestedFields'] as List).isNotEmpty) ...[
+            if (_response?['suggestedFields'] is List &&
+                (_response?['suggestedFields'] as List).isNotEmpty) ...[
               const SizedBox(height: 8),
               Card(
                 child: Padding(
@@ -400,11 +444,17 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Suggested fields', style: TextStyle(fontWeight: FontWeight.w700)),
+                      const Text(
+                        'Suggested fields',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                       const SizedBox(height: 8),
                       ...(_response?['suggestedFields'] as List).map((item) {
                         final field = Map<String, dynamic>.from(item as Map);
-                        final label = field['label']?.toString() ?? field['fieldId']?.toString() ?? 'Field';
+                        final label =
+                            field['label']?.toString() ??
+                            field['fieldId']?.toString() ??
+                            'Field';
                         final value = field['suggestedValue']?.toString() ?? '';
                         return Text('$label: $value');
                       }),
@@ -413,7 +463,9 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
                 ),
               ),
             ],
-            SelectableText(const JsonEncoder.withIndent('  ').convert(_response)),
+            SelectableText(
+              const JsonEncoder.withIndent('  ').convert(_response),
+            ),
           ],
         ],
       ),
@@ -463,7 +515,9 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
                     ? null
                     : () {
                         FocusScope.of(context).unfocus();
-                        setState(() => _message = 'Continuación lista para enviar.');
+                        setState(
+                          () => _message = 'Continuación lista para enviar.',
+                        );
                       },
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Reanudar'),
@@ -493,8 +547,8 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
           const SizedBox(height: 6),
           Text(
             _isRecording
-                ? 'La grabación está en curso. Detenela para convertir el audio a base64.'
-                : 'Grabá tu respuesta, detené la captura y enviá el audio por el contrato existente.',
+                ? 'El dictado está en curso. Detenela para enviar.'
+                : 'Grabá tu respuesta, detené la captura y enviá el audio.',
           ),
           const SizedBox(height: 12),
           Row(
@@ -502,21 +556,23 @@ class _AiRequestScreenState extends State<AiRequestScreen> {
               FilledButton.icon(
                 onPressed: (_loading || _isRecording) ? null : _startRecording,
                 icon: const Icon(Icons.mic_none_outlined),
-                label: const Text('Iniciar grabación'),
+                label: const Text('Iniciar dictado'),
               ),
               const SizedBox(width: 12),
               OutlinedButton.icon(
                 onPressed: (_loading || !_isRecording) ? null : _stopRecording,
                 icon: const Icon(Icons.stop_circle_outlined),
-                label: const Text('Detener grabación'),
+                label: const Text('Detener dictado'),
               ),
             ],
           ),
           const SizedBox(height: 10),
           Text(
-            _isRecording ? 'Grabando audio...' : 'Esperando una nueva captura.',
+            _isRecording ? 'Escuchando...' : 'Esperando audio.',
             style: TextStyle(
-              color: _isRecording ? const Color(0xFF92400E) : Colors.brown.shade700,
+              color: _isRecording
+                  ? const Color(0xFF92400E)
+                  : Colors.brown.shade700,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -547,7 +603,8 @@ class RecordAudioCaptureController extends AudioCaptureController {
   Future<bool> hasPermission() => _recorder.hasPermission();
 
   @override
-  Future<void> start({required String path}) => _recorder.start(const RecordConfig(), path: path);
+  Future<void> start({required String path}) =>
+      _recorder.start(const RecordConfig(), path: path);
 
   @override
   Future<String?> stop() => _recorder.stop();

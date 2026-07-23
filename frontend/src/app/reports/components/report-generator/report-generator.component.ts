@@ -151,7 +151,7 @@ export class ReportGeneratorComponent implements OnInit, AfterViewChecked {
 
       recorder.start();
       this.voiceListening.set(true);
-      this.setVoiceMessage('Grabando audio. Tocá de nuevo para detener.');
+      this.setVoiceMessage('Tocá de nuevo para detener.');
     } catch (error) {
       this.clearVoiceCapture();
       this.setVoiceMessage(this.isPermissionDenied(error)
