@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:record/record.dart';
-import 'package:http/http.dart' as http;
 
 import '../services/api_service.dart';
 
@@ -163,6 +162,8 @@ class _AiAssistantChatScreenState extends State<AiAssistantChatScreen> {
   }
 
   Future<void> _startRecording() async {
+    if (_loading || _isRecording) return;
+
     try {
       if (await _audioRecorder.hasPermission()) {
         setState(() => _isRecording = true);
@@ -180,6 +181,15 @@ class _AiAssistantChatScreenState extends State<AiAssistantChatScreen> {
     }
   }
 
+  Future<void> _toggleRecording() async {
+    if (_loading) return;
+    if (_isRecording) {
+      await _stopRecordingAndSend();
+      return;
+    }
+    await _startRecording();
+  }
+
   Future<void> _stopRecordingAndSend() async {
     if (!_isRecording) return;
     
@@ -187,10 +197,16 @@ class _AiAssistantChatScreenState extends State<AiAssistantChatScreen> {
     try {
       final path = await _audioRecorder.stop();
       if (path != null) {
-        // Since we're using a file path returned by record, we need to read it.
-        // Or better yet, we can read it directly.
-        // Wait, for flutter web/mobile we should handle file reading:
-        final bytes = await _readFileBytes(path);
+        final file = File(path);
+        if (!await file.exists()) {
+          return;
+        }
+
+        final bytes = await file.readAsBytes();
+        try {
+          await file.delete();
+        } catch (_) {}
+
         if (bytes.isNotEmpty) {
           final base64Audio = base64Encode(bytes);
           _addUserMessage("🎤 (Audio)");
@@ -200,29 +216,6 @@ class _AiAssistantChatScreenState extends State<AiAssistantChatScreen> {
     } catch (e) {
       // Handle error
     }
-  }
-  
-  Future<List<int>> _readFileBytes(String path) async {
-    try {
-      final file = Uri.parse(path);
-      // Depending on platform, 'path' is local file or blob
-      // A safe cross-platform way if the path is a valid URL or local:
-      // But for simplicity, let's assume it's mobile local file:
-      final bytes = await javaIoFileRead(path);
-      return bytes;
-    } catch(e) { return []; }
-  }
-
-  Future<List<int>> javaIoFileRead(String path) async {
-      // Dart core io wrapper to avoid web compilation issues if not needed
-      // Actually we'll use cross_file or just standard file if we import 'dart:io'.
-      // For now we'll do a simple read via dart:io (conditionally):
-      return await _ioRead(path);
-  }
-  
-  Future<List<int>> _ioRead(String path) async {
-      final req = await http.get(Uri.parse(path.startsWith('http') || path.startsWith('blob:') ? path : 'file://$path'));
-      return req.bodyBytes;
   }
 
   Future<void> _sendAudio(String audioBase64) async {
@@ -403,9 +396,7 @@ class _AiAssistantChatScreenState extends State<AiAssistantChatScreen> {
                   ),
                   const SizedBox(width: 8),
                   GestureDetector(
-                    onTapDown: (_) => _startRecording(),
-                    onTapUp: (_) => _stopRecordingAndSend(),
-                    onTapCancel: () => _stopRecordingAndSend(),
+                    onTap: _toggleRecording,
                     child: CircleAvatar(
                       backgroundColor: _isRecording ? Colors.red : const Color(0xFF7c3aed),
                       child: Icon(

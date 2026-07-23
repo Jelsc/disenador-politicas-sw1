@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal, computed, ViewChild, ElementRef, Aft
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NgIconComponent } from '@ng-icons/core';
+import { firstValueFrom } from 'rxjs';
 import { PolicyService } from '../../../policies/services/policy.service';
 import { PolicyAiService } from '../../../policies/services/policy-ai.service';
 import { Policy } from '../../../policies/models/policy.model';
@@ -20,12 +21,18 @@ export class ReportGeneratorComponent implements OnInit, AfterViewChecked {
 
   readonly policies = signal<Policy[]>([]);
   readonly selectedPolicyId = signal<string>('');
-  
+
   readonly reportPrompt = signal('');
   readonly reportLoading = signal(false);
   readonly reportResult = signal<AiReportDraftResponse | null>(null);
   readonly voiceListening = signal(false);
+  readonly voiceProcessing = signal(false);
+  readonly voiceStatusMessage = signal('');
   private shouldScrollToBottom = false;
+  private voiceStartPending = false;
+  private mediaRecorder: MediaRecorder | null = null;
+  private mediaStream: MediaStream | null = null;
+  private recordedChunks: Blob[] = [];
 
   @ViewChild('reportComposerTextarea') reportComposerTextarea!: ElementRef<HTMLTextAreaElement>;
 
@@ -42,85 +49,159 @@ export class ReportGeneratorComponent implements OnInit, AfterViewChecked {
     }
   }
 
-  readonly voicePromptTitle = computed(() => this.voiceListening() ? 'Detener escucha' : 'Dictar por voz (Español, LatAm)');
+  readonly voicePromptTitle = computed(() => {
+    if (this.voiceProcessing()) return 'Procesando audio';
+    return this.voiceListening() ? 'Detener grabación' : 'Dictar por voz (Español, LatAm)';
+  });
   readonly voicePromptIcon = computed(() => this.voiceListening() ? 'lucideSquare' : 'lucideMic');
 
-  private recognition: any;
-  private finalTranscriptBase = '';
+  private supportsVoiceCapture(): boolean {
+    return typeof navigator !== 'undefined'
+      && !!navigator.mediaDevices?.getUserMedia
+      && typeof MediaRecorder !== 'undefined';
+  }
 
-  constructor() {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      this.recognition = new SpeechRecognition();
-      this.recognition.lang = 'es-LA';
-      this.recognition.continuous = true;
-      this.recognition.interimResults = true;
-
-      this.recognition.onresult = (event: any) => {
-        let interimTranscript = '';
-        let finalSegment = '';
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalSegment += event.results[i][0].transcript;
-          } else {
-            interimTranscript += event.results[i][0].transcript;
-          }
-        }
-        
-        if (finalSegment) {
-          this.finalTranscriptBase += finalSegment;
-        }
-
-        this.reportPrompt.set((this.finalTranscriptBase + interimTranscript).trimStart());
-        this.syncActiveComposerTextarea();
-      };
-
-      this.recognition.onerror = (event: any) => {
-        console.error('Speech recognition error', event.error);
-        this.stopListening();
-      };
-      
-      this.recognition.onend = () => {
-        if (this.voiceListening()) {
-            this.stopListening();
-        }
-      };
+  private isPermissionDenied(error: unknown): boolean {
+    if (error instanceof DOMException) {
+      return error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError';
     }
+
+    return typeof error === 'object'
+      && error !== null
+      && 'name' in error
+      && (String((error as { name?: string }).name) === 'NotAllowedError'
+        || String((error as { name?: string }).name) === 'PermissionDeniedError');
+  }
+
+  private clearVoiceCapture() {
+    this.voiceStartPending = false;
+    this.mediaRecorder = null;
+
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach((track) => track.stop());
+      this.mediaStream = null;
+    }
+
+    this.recordedChunks = [];
+    this.voiceListening.set(false);
+  }
+
+  private setVoiceMessage(message: string) {
+    this.voiceStatusMessage.set(message);
+  }
+
+  private async blobToBase64(blob: Blob): Promise<string> {
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+    }
+
+    return btoa(binary);
   }
 
   toggleVoicePrompt() {
+    if (this.reportLoading() || this.voiceProcessing() || this.voiceStartPending) {
+      return;
+    }
+
     if (this.voiceListening()) {
       this.stopListening();
-    } else {
-      this.startListening();
+      return;
     }
+
+    void this.startListening();
   }
 
-  private startListening() {
-    if (!this.recognition) {
-        alert('El reconocimiento de voz no está soportado en este navegador. Usa Chrome o Edge.');
-        return;
+  private async startListening() {
+    if (!this.supportsVoiceCapture()) {
+      this.setVoiceMessage('Tu navegador no soporta captura de micrófono.');
+      return;
     }
-    this.voiceListening.set(true);
-    // Keep existing text as base, append space if it doesn't end with one
-    this.finalTranscriptBase = this.reportPrompt();
-    if (this.finalTranscriptBase && !this.finalTranscriptBase.endsWith(' ')) {
-        this.finalTranscriptBase += ' ';
-    }
+
     try {
-        this.recognition.start();
-    } catch (e) {
-        console.error(e);
+      this.voiceStartPending = true;
+      this.setVoiceMessage('Solicitando permiso del micrófono...');
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+
+      this.mediaStream = stream;
+      this.mediaRecorder = recorder;
+      this.recordedChunks = [];
+
+      recorder.ondataavailable = (event: any) => {
+        if (event.data?.size > 0) {
+          this.recordedChunks.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        this.voiceProcessing.set(false);
+        this.clearVoiceCapture();
+        this.setVoiceMessage('No se pudo grabar el audio.');
+      };
+
+      recorder.onstop = () => {
+        void this.processRecordedAudio();
+      };
+
+      recorder.start();
+      this.voiceListening.set(true);
+      this.setVoiceMessage('Grabando audio. Tocá de nuevo para detener.');
+    } catch (error) {
+      this.clearVoiceCapture();
+      this.setVoiceMessage(this.isPermissionDenied(error)
+        ? 'Permiso de micrófono denegado.'
+        : 'No se pudo acceder al micrófono.');
+    } finally {
+      this.voiceStartPending = false;
     }
   }
 
   private stopListening() {
+    const recorder = this.mediaRecorder;
+    if (!recorder || recorder.state === 'inactive') {
+      return;
+    }
+
     this.voiceListening.set(false);
-    if (this.recognition) {
-        try {
-            this.recognition.stop();
-        } catch (e) {}
+    this.voiceProcessing.set(true);
+    this.setVoiceMessage('Procesando audio...');
+
+    try {
+      recorder.stop();
+    } catch {
+      this.voiceProcessing.set(false);
+      this.clearVoiceCapture();
+      this.setVoiceMessage('No se pudo detener la grabación.');
+    }
+  }
+
+  private async processRecordedAudio() {
+    try {
+      const blob = new Blob(this.recordedChunks, { type: this.mediaRecorder?.mimeType || 'audio/webm' });
+      const audioBase64 = await this.blobToBase64(blob);
+      const response = await firstValueFrom(this.aiService.submitVoiceIntake({ audioBase64 }));
+      const transcript = response.transcript?.trim();
+
+      if (transcript) {
+        const currentPrompt = this.reportPrompt().trim();
+        this.reportPrompt.set(currentPrompt ? `${currentPrompt} ${transcript}` : transcript);
+        this.syncActiveComposerTextarea();
+        this.setVoiceMessage('Transcripción agregada al reporte.');
+      } else {
+        this.setVoiceMessage('No se obtuvo una transcripción.');
+      }
+    } catch (error) {
+      console.error('Voice intake error', error);
+      this.setVoiceMessage('No se pudo procesar el audio capturado.');
+    } finally {
+      this.voiceProcessing.set(false);
+      this.clearVoiceCapture();
     }
   }
 
@@ -153,8 +234,7 @@ export class ReportGeneratorComponent implements OnInit, AfterViewChecked {
 
     this.reportLoading.set(true);
     this.reportResult.set(null);
-    
-    // We get the selected policy and send its context
+
     const policy = this.policies().find(p => p.id === policyId);
     const diagramContext = policy?.rules || null;
     const rulesSnapshot = policy?.rules || null;

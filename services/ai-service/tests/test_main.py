@@ -610,7 +610,20 @@ class AiServiceEndpointsTest(unittest.TestCase):
                 "policyName": "Política legal",
                 "context": {
                     "policyStatus": "En revisión",
-                    "diagramContext": {"nodes": ["ingreso"], "connectors": ["ingreso->aprobacion"]},
+                    "diagramContext": {
+                        "departments": [{"id": "legal"}, {"id": "operaciones"}],
+                        "nodes": [
+                            {"id": "ingreso", "type": "TASK", "label": "Ingreso"},
+                            {"id": "aprobacion", "type": "APPROVAL", "label": "Aprobación final"},
+                            {"id": "decision", "type": "GATEWAY", "label": "¿Resultado aprobado?"},
+                            {"id": "cierre", "type": "TASK", "label": "Cierre"},
+                        ],
+                        "connectors": ["ingreso->aprobacion", "aprobacion->decision", "decision->cierre"],
+                        "formFields": [
+                            {"id": "motivo", "label": "Motivo", "visible": True},
+                            {"id": "seguimiento", "label": "Seguimiento", "notifyOnChange": True},
+                        ],
+                    },
                 },
             }
         )
@@ -619,6 +632,13 @@ class AiServiceEndpointsTest(unittest.TestCase):
         self.assertEqual(result["reportType"], "operational-risk")
         self.assertFalse(result["missingFields"])
         self.assertNotIn("context.rules", result["missingFields"])
+        self.assertIn("Metrics & Stats", result["draftBody"])
+        self.assertIn("Departamentos: 2", result["draftBody"])
+        self.assertIn("Nodes: 4", result["draftBody"])
+        self.assertIn("Approvals: 1", result["draftBody"])
+        self.assertIn("Decisions: 1", result["draftBody"])
+        self.assertNotIn("responsable", result["draftBody"].lower())
+        self.assertNotIn("owner", result["draftBody"].lower())
 
     def test_assistant_scales_suggested_rules_across_multiple_departments(self) -> None:
         runtime = AICoreRuntime(

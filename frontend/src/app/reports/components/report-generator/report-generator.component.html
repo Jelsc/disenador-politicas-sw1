@@ -26,7 +26,7 @@
             (input)="syncActiveComposerTextarea()" (keydown)="handleComposerKeydown($event)"
             placeholder="Describí el informe operativo que necesitás..."></textarea>
           <div class="ai-composer-actions">
-            <button class="composer-icon" type="button" [disabled]="reportLoading()" (click)="toggleVoicePrompt()"
+            <button class="composer-icon" type="button" [disabled]="reportLoading() || voiceProcessing()" (click)="toggleVoicePrompt()"
               [title]="voicePromptTitle()">
               <ng-icon [name]="voicePromptIcon()"></ng-icon>
             </button>
@@ -37,7 +37,7 @@
             </button>
           </div>
         </div>
-        <p class="ai-listening-hint" *ngIf="voiceListening()">Escuchando. Se envía al detectar silencio.</p>
+        <p class="ai-listening-hint" *ngIf="voiceStatusMessage()">{{ voiceStatusMessage() }}</p>
       </div>
       <div *ngIf="!selectedPolicyId()" class="empty-composer-message">
         <ng-icon name="lucideCircleAlert"></ng-icon>

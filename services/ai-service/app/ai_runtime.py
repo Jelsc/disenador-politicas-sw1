@@ -945,11 +945,11 @@ class AICoreRuntime:
             "policyName": request.get("policyName"),
             "context": request.get("context") or {},
             "predictions": predictions,
-            "instruction": "Return JSON strict with draftTitle, draftBody, missingFields, clarification, confidence, reportType. Use only the transcript and context, keep the draft factual, and list missingFields instead of inventing facts.",
+            "instruction": "Return JSON strict with draftTitle, draftBody, missingFields, clarification, confidence, reportType. Use only the transcript and context, keep the draft factual, emphasize metrics and statistics, and list missingFields instead of inventing facts.",
         }
         try:
             data, source = self._chat_json(
-                "Sos un redactor de informes. Devolvé SOLO JSON estricto, con tono profesional y factual. No inventes fechas, responsables ni hechos que no estén en el transcript o el contexto.",
+                "Sos un redactor de informes. Devolvé SOLO JSON estricto, con tono profesional y factual. Priorizá métricas y estadísticas. No inventes fechas, responsables ni hechos que no estén en el transcript o el contexto.",
                 payload,
                 ollama_temperature=0.0,
                 ollama_num_predict=REPORT_DRAFT_OLLAMA_NUM_PREDICT,
@@ -987,13 +987,13 @@ class AICoreRuntime:
         prompt_text = str(request.get("text") or request.get("transcript") or transcript)
         policy_name = str(request.get("policyName") or context.get("policyName") or predictions["route"] or "la política").strip()
         policy_status = self._first_context_value(context, ("policyStatus", "status", "state", "policyState"))
-        policy_owner = self._first_context_value(context, ("owner", "responsible", "responsibleArea", "area", "department", "departmentName"))
         policy_deadline = self._first_context_value(context, ("deadline", "dueDate", "targetDate", "sla"))
         diagram_context = self._first_context_value(context, ("diagramContext", "diagram", "graph", "flow", "board"))
         rules_context = self._first_context_value(context, ("rules", "policyRules", "rulesSnapshot"))
         if not rules_context:
             rules_context = diagram_context
         report_type = self._infer_report_type(prompt_text, transcript, predictions)
+        metrics_summary = self._build_report_metrics_summary(context, diagram_context, rules_context)
 
         prompt_excerpt = self._shorten_report_text(prompt_text or transcript, 220)
         signal_lines = [
@@ -1002,8 +1002,6 @@ class AICoreRuntime:
         ]
         if policy_status:
             signal_lines.append(f"La política figura como {self._shorten_report_text(str(policy_status), 120)}.")
-        if policy_owner:
-            signal_lines.append(f"Responsable o área: {self._shorten_report_text(str(policy_owner), 120)}.")
         if policy_deadline:
             signal_lines.append(f"Plazo o SLA: {self._shorten_report_text(str(policy_deadline), 120)}.")
         if diagram_context:
@@ -1027,8 +1025,6 @@ class AICoreRuntime:
         context_highlights: list[str] = []
         if policy_status:
             context_highlights.append(f"Estado operativo: {self._shorten_report_text(str(policy_status), 120)}.")
-        if policy_owner:
-            context_highlights.append(f"Responsable o área: {self._shorten_report_text(str(policy_owner), 120)}.")
         if policy_deadline:
             context_highlights.append(f"Plazo o SLA: {self._shorten_report_text(str(policy_deadline), 120)}.")
         if diagram_context:
@@ -1047,10 +1043,10 @@ class AICoreRuntime:
         for field in missing_fields:
             label = field_labels.get(field, field)
             next_steps.append(f"Confirmar {label}.")
-        if not policy_owner:
-            next_steps.append("Definir responsable o área para cerrar el reporte con trazabilidad.")
         if not policy_deadline:
             next_steps.append("Agregar plazo o SLA para priorizar el seguimiento.")
+        if any(metrics_summary.get(key, 0) for key in ("departments", "nodes", "connectors")):
+            next_steps.append("Revisar las métricas del flujo antes de cerrar el reporte.")
 
         confidence = min(0.97, max(0.84, float(predictions.get("confidence") or 0.0) + (0.02 if policy_status else 0.0) + (0.02 if diagram_context or rules_context else 0.0)))
         return {
@@ -1058,6 +1054,7 @@ class AICoreRuntime:
             "policyStatus": self._shorten_report_text(str(policy_status), 120) if policy_status else "",
             "diagramSummary": self._summarize_context_value(diagram_context),
             "rulesSummary": self._summarize_context_value(rules_context),
+            "metricsSummary": metrics_summary,
             "contextHighlights": context_highlights,
             "reportType": report_type,
             "missingFields": missing_fields,
@@ -1089,9 +1086,9 @@ class AICoreRuntime:
         recommendations: list[str] = []
         if report_type == "operational-risk":
             recommendations.extend([
-                "Validar responsables, plazos y dependencias críticas antes de cerrar la política.",
-                "Confirmar si la demora o la firma pendiente requieren escalamiento operativo.",
-                "Registrar el estado actual del flujo para que el riesgo quede trazable.",
+                "Validar métricas operativas, cuellos de botella y dependencias críticas antes de cerrar la política.",
+                "Confirmar si la demora o la firma pendiente requieren ajuste del flujo operativo.",
+                "Registrar el estado actual del flujo y sus estadísticas para que el riesgo quede trazable.",
             ])
         elif report_type == "document-trace":
             recommendations.extend([
@@ -1113,6 +1110,129 @@ class AICoreRuntime:
         if weak_signals:
             recommendations.append("Completar el contexto faltante para reforzar la lectura del reporte.")
         return list(dict.fromkeys(recommendations))[:5]
+
+    def _build_report_metrics_summary(self, context: dict[str, Any], diagram_context: Any, rules_context: Any) -> dict[str, int]:
+        metrics = {
+            "departments": 0,
+            "nodes": 0,
+            "connectors": 0,
+            "taskNodes": 0,
+            "approvals": 0,
+            "decisions": 0,
+            "formFields": 0,
+            "visibleFields": 0,
+            "notifyFields": 0,
+            "bottlenecks": 0,
+        }
+        seen: set[int] = set()
+        for value in (context, diagram_context, rules_context):
+            self._collect_report_metrics(value, metrics, seen)
+        return metrics
+
+    def _collect_report_metrics(self, value: Any, metrics: dict[str, int], seen: set[int]) -> None:
+        if isinstance(value, dict):
+            identity = id(value)
+            if identity in seen:
+                return
+            seen.add(identity)
+            self._collect_report_metrics_from_mapping(value, metrics, seen)
+            return
+        if isinstance(value, list):
+            identity = id(value)
+            if identity in seen:
+                return
+            seen.add(identity)
+            for item in value:
+                self._collect_report_metrics(item, metrics, seen)
+
+    def _collect_report_metrics_from_mapping(self, value: dict[str, Any], metrics: dict[str, int], seen: set[int]) -> None:
+        for key, item in value.items():
+            key_name = str(key).strip().lower()
+            if key_name == "departments" and isinstance(item, list):
+                metrics["departments"] = max(metrics["departments"], len(item))
+                for entry in item:
+                    self._collect_report_metrics(entry, metrics, seen)
+                continue
+            if key_name == "nodes" and isinstance(item, list):
+                metrics["nodes"] = max(metrics["nodes"], len(item))
+                for entry in item:
+                    self._collect_report_node_metrics(entry, metrics)
+                continue
+            if key_name in {"connectors", "edges"} and isinstance(item, list):
+                metrics["connectors"] = max(metrics["connectors"], len(item))
+                for entry in item:
+                    self._collect_report_metrics(entry, metrics, seen)
+                continue
+            if key_name in {"formfields", "fields"} and isinstance(item, list):
+                metrics["formFields"] = max(metrics["formFields"], len(item))
+                visible_count = 0
+                notify_count = 0
+                for entry in item:
+                    if isinstance(entry, dict):
+                        if self._is_report_visible_field(entry):
+                            visible_count += 1
+                        if self._is_report_notify_field(entry):
+                            notify_count += 1
+                        self._collect_report_metrics(entry, metrics, seen)
+                metrics["visibleFields"] = max(metrics["visibleFields"], visible_count)
+                metrics["notifyFields"] = max(metrics["notifyFields"], notify_count)
+                continue
+            if key_name == "visiblefields" and isinstance(item, list):
+                metrics["visibleFields"] = max(metrics["visibleFields"], len(item))
+                for entry in item:
+                    self._collect_report_metrics(entry, metrics, seen)
+                continue
+            if key_name == "notifyfields" and isinstance(item, list):
+                metrics["notifyFields"] = max(metrics["notifyFields"], len(item))
+                for entry in item:
+                    self._collect_report_metrics(entry, metrics, seen)
+                continue
+            self._collect_report_metrics(item, metrics, seen)
+
+    def _collect_report_node_metrics(self, node: Any, metrics: dict[str, int]) -> None:
+        if not isinstance(node, dict):
+            return
+        node_type = str(node.get("type") or node.get("nodeType") or "").strip().upper()
+        label = self._normalize_report_text(" ".join(str(node.get(key) or "") for key in ("label", "name", "title")))
+        config = node.get("config") if isinstance(node.get("config"), dict) else {}
+        config_text = self._normalize_report_text(" ".join(str(value) for value in config.values())) if isinstance(config, dict) else ""
+        node_text = f"{node_type} {label} {config_text}"
+
+        task_words = ("task", "step", "paso", "tarea", "action", "acción")
+        approval_words = ("approval", "approve", "aprob", "valid", "authorize", "autoriza", "firma", "sign")
+        decision_words = ("decision", "decisión", "gateway", "branch", "rama", "resultado", "choice")
+        bottleneck_words = ("approval", "approve", "aprob", "valid", "signature", "firma", "decision", "decisión", "gateway", "delay", "demora", "block", "bloque", "cuello")
+
+        is_decision_node = node_type in {"GATEWAY", "DECISION"} or any(word in node_text for word in decision_words)
+        is_task_node = node_type in {"TASK", "STEP"} or any(word in node_text for word in task_words)
+        is_approval_node = not is_decision_node and (node_type in {"APPROVAL", "SIGNOFF"} or any(word in node_text for word in approval_words))
+        is_bottleneck_node = any(word in node_text for word in bottleneck_words)
+
+        if is_task_node:
+            metrics["taskNodes"] += 1
+        if is_approval_node:
+            metrics["approvals"] += 1
+        if is_decision_node:
+            metrics["decisions"] += 1
+        if is_bottleneck_node:
+            metrics["bottlenecks"] += 1
+
+    def _is_report_visible_field(self, field: dict[str, Any]) -> bool:
+        for key in ("visible", "isVisible", "shown", "displayed"):
+            value = field.get(key)
+            if isinstance(value, bool):
+                return value
+        hidden_value = field.get("hidden")
+        if isinstance(hidden_value, bool):
+            return not hidden_value
+        return False
+
+    def _is_report_notify_field(self, field: dict[str, Any]) -> bool:
+        for key in ("notify", "notifyOnChange", "notifyChanges", "alerts", "alert"):
+            value = field.get(key)
+            if isinstance(value, bool):
+                return value
+        return False
 
     def _first_context_value(self, context: dict[str, Any], keys: tuple[str, ...]) -> Any:
         for key in keys:
@@ -1171,7 +1291,21 @@ class AICoreRuntime:
             context_highlights = ["No se recibieron señales operativas adicionales."]
         next_steps = list(analysis.get("nextSteps") or [])
         if not next_steps:
-            next_steps = ["Revisar el borrador con el equipo responsable antes de enviarlo."]
+            next_steps = ["Revisar el borrador con la evidencia operativa antes de enviarlo."]
+
+        metrics = dict(analysis.get("metricsSummary") or {})
+        metrics_lines = [
+            f"Departamentos: {int(metrics.get('departments') or 0)}",
+            f"Nodes: {int(metrics.get('nodes') or 0)}",
+            f"Connectors: {int(metrics.get('connectors') or 0)}",
+            f"Task Nodes: {int(metrics.get('taskNodes') or 0)}",
+            f"Approvals: {int(metrics.get('approvals') or 0)}",
+            f"Decisions: {int(metrics.get('decisions') or 0)}",
+            f"Form Fields: {int(metrics.get('formFields') or 0)}",
+            f"Visible Fields: {int(metrics.get('visibleFields') or 0)}",
+            f"Notify Fields: {int(metrics.get('notifyFields') or 0)}",
+            f"Bottlenecks: {int(metrics.get('bottlenecks') or 0)}",
+        ]
 
         tensorflow_section = ""
         if isinstance(tensorflow_draft, dict):
@@ -1206,6 +1340,10 @@ class AICoreRuntime:
             '<h2>Input Snapshot</h2>'
             f'<p>La lectura local clasifica el caso como <strong>{html.escape(report_type.replace("-", " "))}</strong> y mantiene la confianza en {analysis["confidence"]:.2f}.</p>'
             f'{self._render_report_list(context_signals, "No se registró el pedido base.")}'
+            '</section>'
+            '<section>'
+            '<h2>Metrics & Stats</h2>'
+            f'{self._render_report_list(metrics_lines, "No se registraron métricas operativas.")}'
             '</section>'
             f'{tensorflow_section}'
             '<section>'
@@ -1271,7 +1409,7 @@ class AICoreRuntime:
             "draftTitle": self._build_report_title(analysis["reportType"], analysis["policyName"]),
             "draftBody": self._build_report_draft_html(analysis, transcript, predictions),
             "missingFields": analysis["missingFields"],
-            "clarification": clarification or "Pude preparar un borrador heurístico, pero conviene revisar datos, fechas y responsables antes de enviarlo.",
+            "clarification": clarification or "Pude preparar un borrador heurístico, pero conviene revisar datos, métricas y fechas antes de enviarlo.",
             "confidence": float(analysis["confidence"]),
             "modelSource": "heuristic",
             "recommendations": analysis["recommendations"],
