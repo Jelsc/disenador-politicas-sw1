@@ -66,6 +66,38 @@ public class FileStorageService {
         }
     }
 
+    public String storeFile(byte[] content, String originalFileName, String contentType, List<String> allowedFormats, Long maxFileSizeMb) {
+        String cleanOriginalFileName = StringUtils.cleanPath(originalFileName != null ? originalFileName : "file");
+        String fileExtension = "";
+
+        int lastDotIndex = cleanOriginalFileName.lastIndexOf(".");
+        if (lastDotIndex > 0) {
+            fileExtension = cleanOriginalFileName.substring(lastDotIndex);
+        }
+
+        if (maxFileSizeMb != null && maxFileSizeMb > 0) {
+            long maxBytes = maxFileSizeMb * 1024L * 1024L;
+            if (content.length > maxBytes) {
+                throw new IllegalArgumentException("El archivo supera el tamaño máximo permitido de " + maxFileSizeMb + " MB.");
+            }
+        }
+
+        if (allowedFormats != null && !allowedFormats.isEmpty()) {
+            String normalizedExtension = fileExtension.replace(".", "").toLowerCase(Locale.ROOT);
+            boolean allowed = allowedFormats.stream()
+                    .filter(format -> format != null && !format.isBlank())
+                    .map(format -> format.replace(".", "").trim().toLowerCase(Locale.ROOT))
+                    .anyMatch(format -> format.equals(normalizedExtension));
+            if (!allowed) {
+                throw new IllegalArgumentException("Formato no permitido. Permitidos: " + String.join(", ", allowedFormats));
+            }
+        }
+
+        String fileName = UUID.randomUUID().toString() + fileExtension;
+        fileObjectGateway.put(fileName, content, contentType != null && !contentType.isBlank() ? contentType : contentTypeFallback);
+        return fileName;
+    }
+
     public Resource loadFileAsResource(String fileName) {
         byte[] content = fileObjectGateway.get(fileName);
         return new ByteArrayResource(content) {

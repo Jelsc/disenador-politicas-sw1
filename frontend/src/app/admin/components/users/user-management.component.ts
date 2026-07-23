@@ -229,10 +229,11 @@ export class UserManagementComponent implements OnInit {
   readonly searchTerm = signal('');
   readonly selectedRole = signal('');
   readonly selectedDepartment = signal('');
+  readonly managedUsers = computed(() => this.users().filter(user => user.role !== 'CLIENT'));
   readonly activeDepartments = computed(() => this.departments().filter(dept => dept.active));
   readonly filteredUsers = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
-    return this.users().filter(user => {
+    return this.managedUsers().filter(user => {
       const matchesText = !term || user.username.toLowerCase().includes(term) || user.email.toLowerCase().includes(term);
       const matchesRole = !this.selectedRole() || user.role === this.selectedRole();
       const matchesDepartment = !this.selectedDepartment() || user.departmentIds.includes(this.selectedDepartment());
@@ -277,7 +278,7 @@ export class UserManagementComponent implements OnInit {
       departments: this.departmentsService.getDepartments()
     }).subscribe({
       next: ({ users, departments }) => {
-        this.users.set(users);
+        this.users.set(users.filter(user => user.role !== 'CLIENT'));
         this.departments.set(departments);
         this.loading.set(false);
       },

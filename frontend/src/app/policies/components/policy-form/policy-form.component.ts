@@ -77,13 +77,13 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
     { type: 'LONG_TEXT', label: 'Texto largo', help: 'Observaciones o informes' },
     { type: 'NUMBER', label: 'Número', help: 'Montos, cantidades, porcentajes' },
     { type: 'DATE', label: 'Fecha', help: 'Fechas de solicitud o vencimiento' },
-    { type: 'SINGLE_CHOICE', label: 'Selección única', help: 'Una opción; puede alimentar decisión' },
-    { type: 'MULTIPLE_CHOICE', label: 'Selección múltiple', help: 'Varias opciones marcables' },
-    { type: 'CHECKBOX', label: 'Checkbox', help: 'Confirmación simple' },
+    { type: 'SINGLE_CHOICE', label: 'Selector único', help: 'Una sola alternativa' },
+    { type: 'MULTIPLE_CHOICE', label: 'Selector múltiple', help: 'Varias alternativas marcables' },
+    { type: 'CHECKLIST', label: 'Checklist', help: 'Lista de ítems verificables' },
+    { type: 'CHECKBOX', label: 'Confirmación', help: 'Sí / no, aprobado / rechazado' },
     { type: 'FILE', label: 'Archivo', help: 'Documentos adjuntos' },
     { type: 'RESULT', label: 'Resultado / Dictamen', help: 'Aprobado, Observado, Rechazado' },
-    { type: 'SIGNATURE', label: 'Firma cliente', help: 'Solicitud puntual de firma touch en mobile' },
-    { type: 'TABLE', label: 'Tabla / Matriz', help: 'Cuadrícula de datos dinámica o estática' }
+    { type: 'TABLE', label: 'Tabla / grid', help: 'Filas y columnas para datos estructurados' }
   ];
 
   readonly umlNodePalette: UmlNodePaletteItem[] = [
@@ -141,6 +141,10 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
 
   trackByIndex(index: number, obj: any): any {
     return index;
+  }
+
+  trackByFieldId(index: number, field: TaskFormField): string {
+    return field.id || String(index);
   }
 
   // Board configuration
@@ -586,18 +590,16 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
       id: this.slugify(`${this.formFieldLabel(type)} ${fields.length + 1}`),
       type,
       label: this.defaultFieldLabel(type),
-      required: type === 'RESULT' || type === 'SIGNATURE',
+      required: type === 'RESULT',
       order: fields.length + 1,
-      visibleToClient: type === 'RESULT' || type === 'SIGNATURE',
-      notifyClient: type === 'SIGNATURE',
+      visibleToClient: type === 'RESULT',
+      notifyClient: false,
       voiceInputEnabled: type === 'LONG_TEXT',
       usedForDecision: type === 'RESULT',
       options: this.defaultFieldOptions(type),
       allowedFormats: type === 'FILE' ? ['pdf', 'jpg', 'png'] : undefined,
       maxFiles: type === 'FILE' ? 1 : undefined,
-      maxFileSizeMb: type === 'FILE' ? 10 : undefined,
-      signatureMessage: type === 'SIGNATURE' ? 'Por favor revisá tu trámite y registrá tu firma digital.' : undefined,
-      signatureDeadlineHours: type === 'SIGNATURE' ? 24 : undefined
+      maxFileSizeMb: type === 'FILE' ? 10 : undefined
     };
     this.updateTaskFormFields([...fields, field]);
     this.selectedFormFieldId.set(field.id);
@@ -632,6 +634,20 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
     const tableColumns = Array(colsCount).fill('').map((_, i) => field.tableColumns?.[i] || `Columna ${i + 1}`);
     const matrixRows = Array(rowsCount).fill('').map((_, i) => field.matrixRows?.[i] || `Fila ${i + 1}`);
     this.updateTaskFormField(field.id, { tableColumns, matrixRows });
+  }
+
+  changeTableColumnCount(field: TaskFormField, delta: number): void {
+    const currentColumns = field.tableColumns?.length || 2;
+    const currentRows = field.matrixRows?.length || 2;
+    const nextColumns = Math.min(10, Math.max(1, currentColumns + delta));
+    this.initializeTableDimensions(field, currentRows, nextColumns);
+  }
+
+  changeTableRowCount(field: TaskFormField, delta: number): void {
+    const currentColumns = field.tableColumns?.length || 2;
+    const currentRows = field.matrixRows?.length || 2;
+    const nextRows = Math.min(20, Math.max(1, currentRows + delta));
+    this.initializeTableDimensions(field, nextRows, currentColumns);
   }
 
   updateTableColumnName(field: TaskFormField, colIndex: number, name: string): void {
@@ -766,11 +782,11 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   supportsDecision(type: TaskFormFieldType): boolean {
-    return ['RESULT', 'SINGLE_CHOICE', 'NUMBER', 'FILE', 'SIGNATURE'].includes(type);
+    return ['RESULT', 'SINGLE_CHOICE', 'NUMBER', 'FILE'].includes(type);
   }
 
   supportsOptions(type: TaskFormFieldType): boolean {
-    return ['SINGLE_CHOICE', 'MULTIPLE_CHOICE', 'RESULT'].includes(type);
+    return ['SINGLE_CHOICE', 'MULTIPLE_CHOICE', 'CHECKLIST', 'RESULT'].includes(type);
   }
 
   supportsPlaceholder(type: TaskFormFieldType): boolean {
@@ -876,9 +892,6 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
 
     const invalidFieldTask = tasks.find(task => (task.config?.form?.fields || []).some(field => !field.label || field.order < 1 || (this.supportsOptions(field.type) && (!field.options || field.options.length === 0))));
     if (invalidFieldTask) return `La tarea "${invalidFieldTask.label}" tiene campos de formulario incompletos.`;
-
-    const signatureTask = tasks.find(task => task.config?.requiresSignature && !(task.config?.form?.fields || []).some(field => field.type === 'SIGNATURE'));
-    if (signatureTask) return `La tarea "${signatureTask.label}" requiere firma pero no tiene campo Firma configurado.`;
 
     const invalidGateway = gateways.find(gateway => (outgoing.get(gateway.id) || 0) < 2 || !gateway.config?.evaluatedField || !gateway.config?.branches || !gateway.config?.defaultBranch);
     if (invalidGateway) return `La decisión "${invalidGateway.label}" necesita dato evaluado, condiciones, camino por defecto y al menos dos salidas.`;
@@ -1467,8 +1480,12 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
   openDocumentRepository(): void {
     const id = this.policyId();
     if (!id) return;
-    this.router.navigate(['/policies', id, 'documents', 'config'], {
-      queryParamsHandling: 'preserve'
+    const mode = this.editingBlocked() ? 'view' : 'edit';
+    this.router.navigate(['/documents', id, 'config'], {
+      queryParams: {
+        from: mode,
+        mode
+      }
     });
   }
 
@@ -2077,18 +2094,28 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
     if (type === 'LONG_TEXT') return 'Texto largo';
     if (type === 'NUMBER') return 'Número';
     if (type === 'DATE') return 'Fecha';
-    if (type === 'SINGLE_CHOICE') return 'Selección única';
-    if (type === 'MULTIPLE_CHOICE') return 'Selección múltiple';
+    if (type === 'SINGLE_CHOICE') return 'Selector único';
+    if (type === 'MULTIPLE_CHOICE') return 'Selector múltiple';
+    if (type === 'CHECKLIST') return 'Checklist';
     if (type === 'CHECKBOX') return 'Confirmación';
     if (type === 'FILE') return 'Documento adjunto';
     if (type === 'RESULT') return 'Resultado / Dictamen';
-    return 'Firma cliente';
+    if (type === 'TABLE') return 'Tabla / grid';
+    return 'Campo personalizado';
   }
 
   private defaultFieldOptions(type: TaskFormFieldType): string[] | undefined {
     if (type === 'RESULT') return ['Aprobado', 'Observado', 'Rechazado'];
+    if (type === 'CHECKLIST') return ['Ítem 1', 'Ítem 2', 'Ítem 3'];
     if (type === 'SINGLE_CHOICE' || type === 'MULTIPLE_CHOICE') return ['Opción 1', 'Opción 2'];
     return undefined;
+  }
+
+  tableDimensionsSummary(field: TaskFormField): string {
+    const columns = field.tableColumns?.length || 0;
+    const rows = field.matrixRows?.length || 0;
+    if (!columns && !rows) return 'Tabla sin dimensiones definidas';
+    return `${rows} fila(s) × ${columns} columna(s)`;
   }
 
   private updateTaskFormFields(fields: TaskFormField[]): void {
@@ -2160,12 +2187,8 @@ export class PolicyFormComponent implements OnInit, OnDestroy, AfterViewInit {
     if (index === 1) {
       const invalidTasks = tasks.filter(task => !task.config?.taskType || !task.config?.estimatedTime || !(task.config?.form?.fields || []).length);
       if (invalidTasks.length) errors.push(`Tareas sin configuración completa: ${invalidTasks.map(task => task.label).join(', ')}.`);
-      const signatureWithoutField = tasks.filter(task => task.config?.requiresSignature && !(task.config?.form?.fields || []).some(field => field.type === 'SIGNATURE'));
-      if (signatureWithoutField.length) errors.push(`Tareas con firma sin campo Firma cliente: ${signatureWithoutField.map(task => task.label).join(', ')}.`);
       const fileFieldsWithoutRules = tasks.filter(task => (task.config?.form?.fields || []).some(field => field.type === 'FILE' && (!(field.allowedFormats || []).length || !field.maxFileSizeMb)));
       if (fileFieldsWithoutRules.length) warnings.push(`Campos de archivo sin formatos o tamaño máximo: ${fileFieldsWithoutRules.map(task => task.label).join(', ')}.`);
-      const signaturesWithoutMessage = tasks.filter(task => (task.config?.form?.fields || []).some(field => field.type === 'SIGNATURE' && !field.signatureMessage));
-      if (signaturesWithoutMessage.length) warnings.push(`Firmas sin mensaje claro para el cliente: ${signaturesWithoutMessage.map(task => task.label).join(', ')}.`);
       const manyFields = tasks.filter(task => (task.config?.form?.fields || []).length > 12);
       if (manyFields.length) warnings.push(`Formularios extensos: ${manyFields.map(task => task.label).join(', ')}.`);
       return this.simulationResult('Configuración de tareas', errors, warnings, `Tareas revisadas: ${tasks.length}.`);

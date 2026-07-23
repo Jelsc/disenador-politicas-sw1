@@ -13,7 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 @EnableWebSocket
 public class WebSocketConfig implements WebSocketConfigurer {
 
-    @Value("${ALLOWED_ORIGINS:http://localhost:4200}")
+    @Value("${ALLOWED_ORIGINS:http://localhost:4200,http://localhost:80,http://localhost}")
     private String[] allowedOrigins;
 
     private final PolicyBoardWebSocketHandler boardHandler;

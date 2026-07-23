@@ -28,18 +28,21 @@
         <ng-icon name="lucideUserCircle"></ng-icon>
         <span>{{ currentUsername() || 'usuario' }}</span>
       </div>
+      <button *ngIf="isProcedureRepository()" class="action-button header-action" type="button" (click)="openInvitePanel()">
+        <ng-icon name="lucideUserPlus"></ng-icon>
+        Invitar
+      </button>
     </div>
   </header>
 
-  <div class="repository-grid" [class.single-col]="viewMode() === 'config'">
-    <section class="panel settings-panel" *ngIf="viewMode() === 'config'">
+  <ng-container *ngIf="viewMode() === 'config'; else documentRepositoryView">
+    <section class="panel settings-panel">
       <div class="panel-header">
         <div>
           <h2>Configuración y acceso</h2>
           <p>Defina quién puede consultar, subir y versionar documentos en este espacio de trabajo.</p>
         </div>
-        <button class="command-button" type="button" (click)="reloadRepository()">Actualizar</button>
-        <button class="btn-primary save-command" *ngIf="!readOnly()" (click)="saveSettings()" [disabled]="saving() || settingsForm.invalid">
+        <button class="btn-primary save-command" *ngIf="!readOnly()" (click)="saveSettings()" [disabled]="saving()">
           {{ saving() ? 'Guardando...' : 'Guardar reglas' }}
         </button>
       </div>
@@ -71,8 +74,8 @@
 
         <label class="field-block">
           <span>Formatos Permitidos (separados por coma)</span>
-          <input type="text" formControlName="allowedFormatsText" placeholder="Ej: pdf, docx, png" />
-          <small class="field-hint">Solo se aceptarán estos tipos de archivo (sin el punto).</small>
+          <input type="text" formControlName="allowedFormatsText" placeholder="Ej: pdf, docx, xlsx, pptx, png, jpg" />
+          <small class="field-hint">Sugeridos: pdf, docx, xlsx, pptx, png, jpg, jpeg, txt, csv. Escribilos sin el punto.</small>
         </label>
 
         <label class="field-block">
@@ -91,96 +94,233 @@
       </form>
       <div class="alert" *ngIf="errorMessage() && viewMode() === 'config'">{{ errorMessage() }}</div>
     </section>
+  </ng-container>
 
-    <section class="panel upload-panel" *ngIf="viewMode() !== 'config'">
-        <div class="panel-header compact">
-          <div>
-            <h2>Flujo de carga</h2>
-            <p>Adjunte un nuevo archivo y publique una versión.</p>
-          </div>
-          <button class="action-button" type="button" (click)="uploadDocument()" [disabled]="!canUpload() || loading() || uploading() || !selectedFile()">
-            <ng-icon name="lucideUpload"></ng-icon>
-            {{ uploading() ? 'Subiendo...' : 'Subir versión' }}
-          </button>
-        </div>
+  <ng-template #documentRepositoryView>
+    <section class="panel upload-bar" aria-label="Carga de documentos">
+      <div class="upload-summary">
+        <h2>Carga horizontal</h2>
+        <p>Subí una nueva versión o arrastrá un archivo para continuar el historial existente.</p>
+      </div>
 
-        <div class="upload-form">
-          <label>
-            <span>ID de Documento</span>
-            <input type="text" [value]="uploadDocumentId()" (input)="uploadDocumentId.set(($any($event.target).value || '').toString())" placeholder="doc-001" [disabled]="!canUpload()" />
-          </label>
+      <label class="inline-field">
+        <span>Documento</span>
+        <input type="text" [value]="uploadDocumentId()" (input)="uploadDocumentId.set(($any($event.target).value || '').toString())" placeholder="doc-001" [disabled]="!canUpload()" />
+      </label>
 
-          <label class="file-input">
-            <span>Archivo</span>
-            <input type="file" (change)="selectUploadFile($event)" [disabled]="!canUpload()" />
-          </label>
-        </div>
-        <div class="alert" *ngIf="errorMessage() && viewMode() !== 'config'">{{ errorMessage() }}</div>
+      <label class="inline-field file-field">
+        <span>Archivo</span>
+        <input type="file" (change)="selectUploadFile($event)" [disabled]="!canUpload()" />
+      </label>
+
+      <div class="upload-meta">
+        <span class="selected-file">{{ selectedFile()?.name || 'Ningún archivo seleccionado' }}</span>
+        <button class="action-button" type="button" (click)="uploadDocument()" [disabled]="!canUpload() || loading() || uploading() || !selectedFile()">
+          <ng-icon name="lucideUpload"></ng-icon>
+          {{ uploading() ? 'Subiendo...' : 'Subir versión' }}
+        </button>
+      </div>
     </section>
 
-    <section class="panel browser-panel" *ngIf="viewMode() !== 'config'">
-      <div class="panel-header">
-        <div>
-          <h2>Documentos y versiones</h2>
-          <p>Historial operativo para cada documento.</p>
+  <div class="alert" *ngIf="errorMessage()">{{ errorMessage() }}</div>
+
+  <div class="repository-workspace" [class.with-detail]="hasSelectedDocumentDetails()">
+      <section class="panel documents-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Documentos</h2>
+            <p>Revisá los documentos como tarjetas compactas y abrí el historial cuando necesites detalle.</p>
+          </div>
+          <span class="document-count">{{ repositoryDocuments().length }} documento(s)</span>
         </div>
-      </div>
 
-      <div class="loading-state" *ngIf="loading()">Cargando repositorio...</div>
+        <div class="loading-state" *ngIf="loading()">Cargando repositorio...</div>
 
-      <div class="empty-state" *ngIf="!loading() && repositoryDocuments().length === 0">
-        <ng-icon name="lucideFiles"></ng-icon>
-        <h3>El repositorio está vacío</h3>
-        <p>Aún no se han subido documentos a {{ viewMode() === 'procedure-docs' ? 'este trámite' : 'esta política' }}.</p>
-      </div>
+        <div class="empty-state" *ngIf="!loading() && repositoryDocuments().length === 0">
+          <ng-icon name="lucideFiles"></ng-icon>
+          <h3>El repositorio está vacío</h3>
+          <p>Aún no se han subido documentos a {{ viewMode() === 'procedure-docs' ? 'este trámite' : 'esta política' }}.</p>
+        </div>
 
-      <div class="document-list" *ngIf="!loading() && repositoryDocuments().length > 0">
-        <article class="doc-card" *ngFor="let doc of repositoryDocuments()" 
-                 [class.active]="selectedDocumentId() === doc.documentId"
-                 (click)="openDocumentHistory(doc)">
-          <div class="doc-icon">
-            <ng-icon name="lucideFileText"></ng-icon>
-          </div>
-          <div class="doc-info">
-            <strong>{{ doc.originalFileName }}</strong>
-            <div class="doc-meta">
-              <span class="version-badge">v{{ doc.version }}</span>
-              <span>Subido por {{ doc.createdBy }}</span>
+        <div class="document-grid" *ngIf="!loading() && repositoryDocuments().length > 0">
+          <article class="doc-card" *ngFor="let doc of repositoryDocuments()" [class.active]="selectedDocumentId() === doc.documentId" [attr.aria-pressed]="selectedDocumentId() === doc.documentId" role="button" tabindex="0" (click)="handleDocumentCardClick(doc)" (dblclick)="handleDocumentCardDoubleClick(doc)" (keydown.enter)="toggleDocumentSelection(doc)" (keydown.space)="$event.preventDefault(); toggleDocumentSelection(doc)">
+            <div class="doc-card-main">
+              <div class="doc-icon">
+                <ng-icon name="lucideFileText"></ng-icon>
+              </div>
+              <div class="doc-info">
+                <strong>{{ doc.originalFileName }}</strong>
+                <div class="doc-meta">
+                  <span class="version-badge">v{{ doc.version }}</span>
+                  <span>{{ doc.documentId }}</span>
+                  <span class="feature-pill inline" *ngIf="isInlinePreviewable(doc)">Vista previa</span>
+                  <span class="feature-pill office" *ngIf="isOnlyOfficeSupported(doc)">OnlyOffice</span>
+                </div>
+                <div class="doc-presence" *ngIf="editableDocumentEditors(doc).length > 0">
+                  <span
+                    class="presence-avatar"
+                    *ngFor="let editor of editableDocumentEditors(doc)"
+                    [attr.title]="editorTooltip(editor)"
+                    [attr.aria-label]="editorTooltip(editor)"
+                  >
+                    {{ editorInitials(editor) }}
+                  </span>
+                </div>
+                <small>Subido por {{ doc.createdBy }}</small>
+              </div>
             </div>
+            <div class="doc-actions">
+              <button *ngIf="isOnlyOfficeSupported(doc)" type="button" class="download-btn editor-btn" (click)="openDocumentEditor(doc); $event.stopPropagation()" (dblclick)="$event.stopPropagation()" title="Abrir en OnlyOffice" aria-label="Abrir en OnlyOffice">
+                <ng-icon name="lucideEdit2"></ng-icon>
+              </button>
+               <button type="button" class="download-btn" (click)="downloadVersion(doc); $event.stopPropagation()" (dblclick)="$event.stopPropagation()" title="Descargar versión actual" aria-label="Descargar versión actual">
+                 <ng-icon name="lucideDownload"></ng-icon>
+               </button>
+              <button class="delete-btn" *ngIf="currentRole() === 'ADMIN' || currentUsername() === doc.createdBy" (click)="deleteDocument(doc.documentId, doc.version); $event.stopPropagation()" (dblclick)="$event.stopPropagation()" title="Eliminar documento" aria-label="Eliminar documento">
+                <ng-icon name="lucideTrash2"></ng-icon>
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <aside class="panel detail-panel" *ngIf="hasSelectedDocumentDetails()">
+        <div class="panel-header compact-stack">
+          <div>
+            <h2>Detalle e historial</h2>
+            <p>{{ selectedDocumentId() }} · {{ documentVersions().length }} versión(es)</p>
           </div>
-          <div class="doc-actions">
-            <a [href]="versionDownloadUrl(doc)" target="_blank" class="download-btn" (click)="$event.stopPropagation()" title="Descargar versión actual">
-              <ng-icon name="lucideDownload"></ng-icon>
-            </a>
-            <button class="delete-btn" *ngIf="currentRole() === 'ADMIN' || currentUsername() === doc.createdBy" (click)="deleteDocument(doc.documentId, doc.version); $event.stopPropagation()" title="Eliminar documento">
-              <ng-icon name="lucideTrash2"></ng-icon>
-            </button>
+        </div>
+
+        <div class="loading-state detail-state" *ngIf="selectedDocumentLoading()">Cargando historial...</div>
+
+        <div class="empty-state detail-state" *ngIf="!selectedDocumentLoading() && documentVersions().length === 0">
+          <ng-icon name="lucideFiles"></ng-icon>
+          <h3>Sin versiones registradas</h3>
+          <p>Este documento todavía no tiene historial disponible.</p>
+        </div>
+
+        <div class="history-list" *ngIf="!selectedDocumentLoading() && documentVersions().length > 0">
+            <article class="history-row" *ngFor="let version of documentVersions()">
+            <div>
+              <strong>
+                Versión {{ version.version }}
+                <span *ngIf="version.versionName">· {{ version.versionName }}</span>
+              </strong>
+              <p>{{ version.traceAction }} · {{ version.traceNote }}</p>
+            </div>
+            <div class="history-actions">
+              <span>{{ version.createdBy }}</span>
+              <button *ngIf="isOnlyOfficeSupported(version)" type="button" class="download-link editor-link" aria-label="Editar versión en OnlyOffice" (click)="openDocumentEditor(version); $event.stopPropagation()" (dblclick)="$event.stopPropagation()">
+                <ng-icon name="lucideEdit2"></ng-icon>
+                Editar
+              </button>
+               <button type="button" class="download-link" aria-label="Descargar versión" (click)="downloadVersion(version); $event.stopPropagation()" (dblclick)="$event.stopPropagation()">
+                 <ng-icon name="lucideDownload"></ng-icon>
+                 Descargar
+               </button>
+              <button class="delete-link" *ngIf="currentRole() === 'ADMIN' || currentUsername() === version.createdBy" (click)="deleteDocument(version.documentId, version.version)" (dblclick)="$event.stopPropagation()" title="Eliminar versión" aria-label="Eliminar versión">
+                <ng-icon name="lucideTrash2"></ng-icon>
+              </button>
+            </div>
+          </article>
+        </div>
+      </aside>
+    </div>
+  </ng-template>
+
+  <div class="invite-panel-backdrop" *ngIf="invitePanelOpen()" (click)="closeInvitePanel()">
+    <section class="invite-panel" role="dialog" aria-modal="true" aria-label="Invitar usuarios al expediente" (click)="$event.stopPropagation()">
+      <header class="invite-panel-header">
+        <div>
+          <strong>Invitar usuarios</strong>
+          <p>Buscá usuarios, revisá quién ya tiene acceso y administrá invitados del trámite.</p>
+        </div>
+        <button type="button" class="preview-close-button" (click)="closeInvitePanel()" aria-label="Cerrar panel de invitados">×</button>
+      </header>
+
+      <div class="invite-toolbar">
+        <label class="inline-field invite-search">
+          <span>Buscar usuario</span>
+          <input
+            type="text"
+            [value]="inviteSearchQuery()"
+            (input)="inviteSearchQuery.set(($any($event.target).value || '').toString())"
+            (keyup.enter)="searchInvitableUsers()"
+            placeholder="Usuario, nombre o email"
+          />
+        </label>
+        <button class="action-button" type="button" (click)="searchInvitableUsers()" [disabled]="inviteBusy()">{{ inviteBusy() ? 'Buscando...' : 'Buscar' }}</button>
+      </div>
+
+      <div class="invite-message" *ngIf="inviteMessage()">{{ inviteMessage() }}</div>
+
+      <section class="invite-section">
+        <div class="section-inline-header">
+          <h3>Resultados de búsqueda</h3>
+        </div>
+        <div class="invite-empty" *ngIf="!inviteBusy() && inviteCandidates().length === 0">Buscá un usuario para invitarlo.</div>
+        <article class="invite-row" *ngFor="let user of inviteCandidates()">
+          <div>
+            <strong>{{ user.name || user.username }}</strong>
+            <p>{{ user.username }}<span *ngIf="user.email"> · {{ user.email }}</span></p>
+          </div>
+          <button class="invite-action" type="button" (click)="inviteUser(user)" [disabled]="inviteBusy() || hasCurrentAccess(user.username)">
+            {{ hasCurrentAccess(user.username) ? 'Ya tiene acceso' : 'Invitar' }}
+          </button>
+        </article>
+      </section>
+
+      <section class="invite-section">
+        <div class="section-inline-header">
+          <h3>Invitados actuales</h3>
+        </div>
+        <div class="invite-empty" *ngIf="!inviteBusy() && invitedUsers().length === 0">No hay usuarios invitados todavía.</div>
+        <article class="invite-row invited" *ngFor="let user of invitedUsers()">
+          <div>
+            <strong>{{ user.name || user.username }}</strong>
+            <p>{{ user.username }}<span *ngIf="user.email"> · {{ user.email }}</span></p>
           </div>
         </article>
-      </div>
+      </section>
 
-      <div class="history-panel" *ngIf="documentVersions().length > 0">
-        <div class="history-header">
-          <h3>Historial seleccionado</h3>
-          <span>{{ selectedDocumentId() }} · {{ documentVersions().length }} versión(es)</span>
+      <section class="invite-section">
+        <div class="section-inline-header">
+          <h3>Acceso actual</h3>
         </div>
+        <div class="invite-empty" *ngIf="currentAccessUsers().length === 0">Todavía no hay usuarios con acceso directo al expediente.</div>
+        <article class="access-row" *ngFor="let user of currentAccessUsers()">
+          <div class="access-row-main">
+            <strong>{{ user.name || user.username }}</strong>
+            <p>{{ user.username }}<span *ngIf="user.email"> · {{ user.email }}</span></p>
+          </div>
+          <div class="access-badges">
+            <span class="access-badge invited" *ngIf="user.invited && user.participant">Ambos</span>
+            <span class="access-badge invited" *ngIf="user.invited && !user.participant">Invitación directa</span>
+            <span class="access-badge participant" *ngIf="!user.invited && user.participant">Participante del flujo</span>
+          </div>
+          <button class="invite-remove" *ngIf="user.invited" type="button" (click)="revokeInvitedUser(user)" [disabled]="inviteBusy()">Revocar</button>
+        </article>
+      </section>
+    </section>
+  </div>
 
-        <div class="history-row" *ngFor="let version of documentVersions()">
-          <div>
-            <strong>Versión {{ version.version }}</strong>
-            <p>{{ version.traceAction }} · {{ version.traceNote }}</p>
-          </div>
-          <div class="history-actions">
-            <span>{{ version.createdBy }}</span>
-            <a class="download-link" [href]="versionDownloadUrl(version)" target="_blank" rel="noreferrer">
-              <ng-icon name="lucideDownload"></ng-icon>
-              Descargar
-            </a>
-            <button class="delete-link" *ngIf="currentRole() === 'ADMIN' || currentUsername() === version.createdBy" (click)="deleteDocument(version.documentId, version.version)" title="Eliminar versión">
-              <ng-icon name="lucideTrash2"></ng-icon>
-            </button>
-          </div>
+  <div class="preview-modal-backdrop" *ngIf="previewModalOpen()" (click)="closePreviewModal()">
+    <section class="preview-modal" role="dialog" aria-modal="true" [attr.aria-label]="previewTitle() || 'Vista previa del documento'" (click)="$event.stopPropagation()">
+      <header class="preview-modal-header">
+        <div>
+          <strong>Vista previa</strong>
+          <p>{{ previewTitle() || selectedDocumentId() }}</p>
         </div>
+        <button type="button" class="preview-close-button" (click)="closePreviewModal()" aria-label="Cerrar vista previa">×</button>
+      </header>
+
+      <div class="preview-state" *ngIf="previewLoading()">Cargando vista previa...</div>
+      <div class="preview-state error" *ngIf="!previewLoading() && previewError()">{{ previewError() }}</div>
+      <div *ngIf="!previewLoading() && !previewError()">
+        <img *ngIf="previewKind() === 'image'" class="preview-media" [src]="previewImageUrl() || ''" [alt]="previewTitle() || 'Vista previa del documento'" />
+        <iframe *ngIf="previewKind() === 'pdf'" class="preview-frame" [src]="previewSafeUrl()" [title]="previewTitle() || 'Vista previa PDF'"></iframe>
+        <pre *ngIf="previewKind() === 'text'" class="preview-text">{{ previewText() }}</pre>
       </div>
     </section>
   </div>

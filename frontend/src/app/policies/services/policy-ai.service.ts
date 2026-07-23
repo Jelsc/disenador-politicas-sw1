@@ -78,6 +78,7 @@ export interface AiReportDraftResponse {
   missingFields: string[];
   clarification?: string | null;
   confidence: number;
+  recommendations?: string[];
 }
 
 export interface AiPerformanceSnapshot {

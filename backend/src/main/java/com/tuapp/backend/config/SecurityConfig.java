@@ -68,8 +68,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/register").permitAll()
                         .requestMatchers("/api/health").permitAll()
                         .requestMatchers("/api/files/download/**").permitAll()
+                        .requestMatchers("/api/onlyoffice/**").permitAll()
                         .requestMatchers("/ws/policies/**").permitAll()
                         .requestMatchers("/ws/notifications/**").permitAll()
+                        .requestMatchers("/ws/documents/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/config/**").permitAll()
                         // All other requests require authentication
                         .anyRequest().authenticated()

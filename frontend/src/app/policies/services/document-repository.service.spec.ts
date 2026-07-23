@@ -129,6 +129,61 @@ describe('DocumentRepositoryService', () => {
     });
   });
 
+  it('downloads a document blob for inline previews', () => {
+    service.downloadDocumentBlob('proc-1', 'doc-7', 3).subscribe(blob => {
+      expect(blob).toBeTruthy();
+    });
+
+    const req = httpMock.expectOne(`${environment.apiUrl}/procedures/proc-1/documents/doc-7/versions/3`);
+    expect(req.request.method).toBe('GET');
+    expect(req.request.responseType).toBe('blob');
+    req.flush(new Blob(['preview'], { type: 'application/pdf' }));
+  });
+
+  it('lists, invites, searches and revokes procedure repository users', () => {
+    service.listInvitedUsers('proc-1').subscribe(users => {
+      expect(users[0].username).toBe('luis');
+    });
+
+    const listReq = httpMock.expectOne(`${environment.apiUrl}/procedures/proc-1/documents/invites`);
+    expect(listReq.request.method).toBe('GET');
+    listReq.flush([{ id: 'u-1', username: 'luis', name: 'Luis Pérez', email: 'luis@example.com' }]);
+
+    service.listProcedureParticipants('proc-1').subscribe(users => {
+      expect(users[0].username).toBe('maria');
+    });
+
+    const participantsReq = httpMock.expectOne(`${environment.apiUrl}/procedures/proc-1/documents/participants`);
+    expect(participantsReq.request.method).toBe('GET');
+    participantsReq.flush([{ id: 'u-2', username: 'maria', name: 'María Torres', email: 'maria@example.com' }]);
+
+    service.searchInvitableUsers('proc-1', 'luis').subscribe(users => {
+      expect(users[0].email).toBe('luis@example.com');
+    });
+
+    const searchReq = httpMock.expectOne(req => req.url === `${environment.apiUrl}/procedures/proc-1/documents/invites/search` && req.method === 'GET');
+    expect(searchReq.request.params.get('q')).toBe('luis');
+    expect(searchReq.request.params.get('limit')).toBe('8');
+    searchReq.flush([{ id: 'u-1', username: 'luis', name: 'Luis Pérez', email: 'luis@example.com' }]);
+
+    service.inviteUser('proc-1', 'luis').subscribe(users => {
+      expect(users.length).toBe(1);
+    });
+
+    const inviteReq = httpMock.expectOne(`${environment.apiUrl}/procedures/proc-1/documents/invites`);
+    expect(inviteReq.request.method).toBe('POST');
+    expect(inviteReq.request.body).toEqual({ username: 'luis' });
+    inviteReq.flush([{ id: 'u-1', username: 'luis', name: 'Luis Pérez', email: 'luis@example.com' }]);
+
+    service.revokeUser('proc-1', 'luis').subscribe(users => {
+      expect(users).toEqual([]);
+    });
+
+    const revokeReq = httpMock.expectOne(`${environment.apiUrl}/procedures/proc-1/documents/invites/luis`);
+    expect(revokeReq.request.method).toBe('DELETE');
+    revokeReq.flush([]);
+  });
+
   it('omits the document id when creating a new repository document', () => {
     const file = new File(['single-file'], 'handoff.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
 

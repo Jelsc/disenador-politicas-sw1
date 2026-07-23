@@ -12,6 +12,7 @@ import com.tuapp.backend.policies.infrastructure.PolicyChangeLogDocument;
 import com.tuapp.backend.policies.infrastructure.PolicyChangeLogMongoRepository;
 import com.tuapp.backend.policies.infrastructure.PolicyVersionDocument;
 import com.tuapp.backend.policies.infrastructure.PolicyVersionMongoRepository;
+import com.tuapp.backend.documents.application.DocumentRepositoryService;
 import com.tuapp.backend.policies.presentation.dto.PolicyAutosaveRequest;
 import com.tuapp.backend.policies.presentation.dto.PolicyChangeLogRequest;
 import com.tuapp.backend.policies.presentation.dto.PolicyDryRunRequest;
@@ -44,14 +45,16 @@ public class PolicyService {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final PolicyNotificationWebSocketHandler notificationWebSocketHandler;
+    private final DocumentRepositoryService documentRepositoryService;
 
     public PolicyService(PolicyRepository repository,
                          PolicyVersionMongoRepository versionRepository,
-                         PolicyAutosaveMongoRepository autosaveRepository,
-                         PolicyChangeLogMongoRepository changeLogRepository,
-                         UserRepository userRepository,
-                         ObjectMapper objectMapper,
-                         PolicyNotificationWebSocketHandler notificationWebSocketHandler) {
+                          PolicyAutosaveMongoRepository autosaveRepository,
+                          PolicyChangeLogMongoRepository changeLogRepository,
+                          UserRepository userRepository,
+                          ObjectMapper objectMapper,
+                          PolicyNotificationWebSocketHandler notificationWebSocketHandler,
+                          DocumentRepositoryService documentRepositoryService) {
         this.repository = repository;
         this.versionRepository = versionRepository;
         this.autosaveRepository = autosaveRepository;
@@ -59,6 +62,7 @@ public class PolicyService {
         this.userRepository = userRepository;
         this.objectMapper = objectMapper;
         this.notificationWebSocketHandler = notificationWebSocketHandler;
+        this.documentRepositoryService = documentRepositoryService;
     }
 
     public List<Policy> getAllPolicies(String username, boolean admin) {
@@ -475,6 +479,10 @@ public class PolicyService {
                 .updatedAt(LocalDateTime.now())
                 .build());
 
+        if (saved.getId() != null && existing.getId() != null) {
+            documentRepositoryService.inheritSettingsFromPolicy(saved.getId(), existing.getId());
+        }
+
         saveChangeLog(saved.getId(), versionId, username, "DUPLICATE_VERSION_TO_DRAFT", "POLICY_VERSION", versionId, null, version.getName());
         return saved;
     }
@@ -508,6 +516,9 @@ public class PolicyService {
                 .updatedAt(LocalDateTime.now())
                 .build();
         Policy saved = repository.save(clone);
+        if (saved.getId() != null && source.getId() != null) {
+            documentRepositoryService.inheritSettingsFromPolicy(saved.getId(), source.getId());
+        }
         saveChangeLog(saved.getId(), null, username, "CLONE_POLICY", "POLICY", source.getId(), null, source.getName());
         return saved;
     }
@@ -884,9 +895,9 @@ public class PolicyService {
                         if (field.path("label").asText().isBlank()) {
                             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Task '" + label + "' has form fields without label");
                         }
-                        if (("SINGLE_CHOICE".equalsIgnoreCase(fieldType) || "MULTIPLE_CHOICE".equalsIgnoreCase(fieldType) || "RESULT".equalsIgnoreCase(fieldType))
+                        if (("SINGLE_CHOICE".equalsIgnoreCase(fieldType) || "MULTIPLE_CHOICE".equalsIgnoreCase(fieldType) || "CHECKLIST".equalsIgnoreCase(fieldType) || "RESULT".equalsIgnoreCase(fieldType))
                                 && (!field.path("options").isArray() || field.path("options").size() == 0)) {
-                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Task '" + label + "' has choice/result fields without options");
+                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Task '" + label + "' has selector/checklist/result fields without options");
                         }
                         if ("SIGNATURE".equalsIgnoreCase(fieldType)) hasSignatureField = true;
                     }

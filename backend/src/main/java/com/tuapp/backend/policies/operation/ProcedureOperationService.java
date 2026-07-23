@@ -3,6 +3,9 @@ package com.tuapp.backend.policies.operation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuapp.backend.policies.operation.dto.ProcedureTrackingResponse;
+import com.tuapp.backend.policies.operation.dto.ClientLookupResponse;
+import com.tuapp.backend.policies.operation.dto.ClientLookupStatus;
+import com.tuapp.backend.policies.operation.dto.ClientLookupUserResponse;
 import com.tuapp.backend.policies.application.PolicyService;
 import com.tuapp.backend.policies.domain.Policy;
 import com.tuapp.backend.users.domain.User;
@@ -21,12 +24,17 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.Map;
+import java.util.stream.StreamSupport;
 
 @Service
 public class ProcedureOperationService {
@@ -83,6 +91,32 @@ public class ProcedureOperationService {
                 .toList();
     }
 
+    public ClientLookupResponse clientLookup(String clientCi, String clientEmail, String username) {
+        return resolveClientLookup(normalizeClientValue(clientCi), normalizeClientValue(clientEmail)).toResponse();
+    }
+
+    public List<ClientLookupUserResponse> clientSuggestions(String query, Integer limit, String username) {
+        String normalizedQuery = normalizeClientValue(query);
+        if (!hasText(normalizedQuery)) {
+            return List.of();
+        }
+
+        int max = limit == null || limit <= 0 ? 5 : Math.min(limit, 10);
+        String loweredQuery = normalizedQuery.toLowerCase(Locale.ROOT);
+
+        return StreamSupport.stream(userRepository.findAll().spliterator(), false)
+                .filter(User::isActive)
+                .filter(this::isClientUser)
+                .filter(user -> matchesSuggestionQuery(user, loweredQuery))
+                .sorted(Comparator
+                        .comparingInt((User user) -> suggestionScore(user, loweredQuery))
+                        .thenComparing(user -> safeLower(user.getUsername()))
+                        .thenComparing(user -> safeLower(user.getEmail())))
+                .limit(max)
+                .map(ProcedureOperationService::toClientLookupUserResponse)
+                .toList();
+    }
+
     public ProcedureDocument createProcedure(CreateProcedureRequest request, String username) {
         Policy policy = policyService.getPublishedPolicyForExecution(request.getPolicyId());
         String startDepartmentId = startDepartmentId(policy);
@@ -90,34 +124,19 @@ public class ProcedureOperationService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No podés iniciar este trámite porque empieza en otro departamento.");
         }
 
-        // Manage client
-        String clientId = null;
-        String clientName = request.getClientFullName();
-        String clientCi = request.getClientCi();
-        
-        if (clientCi != null && !clientCi.trim().isEmpty()) {
-            User clientUser = userRepository.findByUsername(clientCi).orElse(null);
-            if (clientUser == null) {
-                // Check email just in case
-                if (request.getClientEmail() != null && !request.getClientEmail().trim().isEmpty()) {
-                    clientUser = userRepository.findByEmail(request.getClientEmail()).orElse(null);
-                }
-            }
-            
-            if (clientUser == null) {
-                // Create new client user
-                clientUser = new User();
-                clientUser.setUsername(clientCi);
-                clientUser.setEmail(request.getClientEmail() != null ? request.getClientEmail() : clientCi + "@cliente.local");
-                clientUser.setPassword(passwordEncoder.encode(clientCi));
-                clientUser.setRoles(List.of(Role.CLIENT));
-                clientUser.setDepartmentIds(List.of());
-                clientUser.setName(clientName);
-                clientUser.setActive(true);
-                clientUser = userRepository.save(clientUser);
-            }
-            clientId = clientUser.getId();
+        ClientLookupResolution clientResolution = resolveClientLookup(normalizeClientValue(request.getClientCi()), normalizeClientValue(request.getClientEmail()));
+        if (clientResolution.status == ClientLookupStatus.CONFLICT) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, clientResolution.message);
         }
+
+        User clientUser = clientResolution.resolvedClient;
+        if (clientUser == null && hasText(request.getClientCi())) {
+            clientUser = createClient(request);
+        }
+
+        String clientId = clientUser == null ? null : clientUser.getId();
+        String clientName = clientUser != null && hasText(clientUser.getName()) ? clientUser.getName() : request.getClientFullName();
+        String clientCi = clientUser != null ? clientUser.getUsername() : normalizeClientValue(request.getClientCi());
 
         LocalDateTime now = LocalDateTime.now();
         ProcedureDocument procedure = procedureRepository.save(ProcedureDocument.builder()
@@ -129,10 +148,12 @@ public class ProcedureOperationService {
                 .clientId(clientId)
                 .clientName(clientName)
                 .clientCi(clientCi)
+                .invitedUsers(new ArrayList<>())
                 .values(request.getValues() == null ? new HashMap<>() : request.getValues())
                 .createdAt(now)
                 .updatedAt(now)
                 .build());
+        documentRepositoryService.inheritSettingsFromPolicy(procedure.getId(), policy.getId());
         notifyClientByCi(clientCi,
                 "Trámite iniciado: " + policy.getName(),
                 "Tu trámite fue registrado y ya está en proceso.",
@@ -158,7 +179,11 @@ public class ProcedureOperationService {
         task.setStatus("ASSIGNED");
         task.setAssignedTo(username);
         task.setAssignedAt(LocalDateTime.now());
-        return taskRepository.save(task);
+        ProcedureTaskDocument saved = taskRepository.save(task);
+        ProcedureDocument procedure = procedureRepository.findById(saved.getProcedureId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Trámite no encontrado."));
+        notifyClientTaskAccepted(procedure, saved);
+        return saved;
     }
 
     public Map<String, String> uploadTaskFile(String procedureId, String taskId, String fieldId, MultipartFile file, String username) {
@@ -166,10 +191,12 @@ public class ProcedureOperationService {
         if (!procedureId.equals(task.getProcedureId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La tarea no pertenece a este trámite.");
         }
-        if (!username.equals(task.getAssignedTo())) {
+        ProcedureDocument procedure = procedureRepository.findById(procedureId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Trámite no encontrado."));
+        if (!canActOnTask(task, procedure, username)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo quien aceptó la tarea puede subir archivos.");
         }
-        DocumentVersionDocument saved = documentRepositoryService.uploadTaskEvidence(procedureId, file, fieldId, username);
+        DocumentVersionDocument saved = documentRepositoryService.uploadTaskEvidence(procedureId, taskId, fieldId, file, username);
         return Map.of(
             "fileName", saved.getOriginalFileName(),
             "fileDownloadUri", "/api/procedures/" + procedureId + "/documents/" + saved.getDocumentId() + "/versions/" + saved.getVersion(),
@@ -178,17 +205,30 @@ public class ProcedureOperationService {
         );
     }
 
+    public List<ProcedureTaskDocument> procedureProcesses(String procedureId, String username) {
+        ProcedureDocument procedure = procedureRepository.findById(procedureId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Trámite no encontrado."));
+        if (!canSeeProcedure(procedure, username)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tenés acceso a este trámite.");
+        }
+        return taskRepository.findByProcedureIdOrderByCreatedAtAsc(procedureId);
+    }
+
     public ProcedureTaskDocument completeTask(String taskId, CompleteTaskRequest request, String username) {
         ProcedureTaskDocument task = requireTask(taskId);
-        if (!username.equals(task.getAssignedTo())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo quien aceptó la tarea puede completarla.");
+        ProcedureDocument procedure = procedureRepository.findById(task.getProcedureId()).orElseThrow();
+        if (!canActOnTask(task, procedure, username)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo quien aceptó la tarea puede completarla.");
         task.setStatus("COMPLETED");
-        task.setFormValues(request.getValues() == null ? new HashMap<>() : request.getValues());
+        Map<String, Object> mergedValues = new HashMap<>();
+        if (task.getFormValues() != null) {
+            mergedValues.putAll(task.getFormValues());
+        }
+        if (request.getValues() != null) {
+            mergedValues.putAll(request.getValues());
+        }
+        task.setFormValues(mergedValues);
         task.setCompletedAt(LocalDateTime.now());
         ProcedureTaskDocument saved = taskRepository.save(task);
-
-
-        ProcedureDocument procedure = procedureRepository.findById(task.getProcedureId()).orElseThrow();
-        notifySignatureRequests(procedure, saved);
         notifyClientByCi(procedure.getClientCi(),
                 "Etapa completada: " + procedure.getPolicyName(),
                 "La etapa \"" + task.getNodeLabel() + "\" fue completada.",
@@ -203,12 +243,18 @@ public class ProcedureOperationService {
     }
 
     public List<ProcedureTrackingResponse> myProcedures(String username) {
-        User user = userRepository.findByUsername(username)
+        userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Usuario no encontrado."));
-        boolean client = user.getRoles() != null && user.getRoles().contains(Role.CLIENT);
-        List<ProcedureDocument> procedures = client
-                ? procedureRepository.findByClientCiOrderByCreatedAtDesc(username)
-                : procedureRepository.findByCreatedByOrderByCreatedAtDesc(username);
+        Set<String> assignedProcedureIds = taskRepository.findByAssignedToOrderByCreatedAtDesc(username).stream()
+                .map(ProcedureTaskDocument::getProcedureId)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        List<ProcedureDocument> procedures = StreamSupport.stream(procedureRepository.findAll().spliterator(), false)
+                .filter(proc -> username.equals(proc.getCreatedBy())
+                        || username.equals(proc.getClientCi())
+                        || containsUsername(proc.getInvitedUsers(), username)
+                        || assignedProcedureIds.contains(proc.getId()))
+                .sorted(Comparator.comparing(ProcedureDocument::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                .toList();
         return procedures.stream()
                 .map(this::toTrackingResponse)
                 .toList();
@@ -289,6 +335,7 @@ public class ProcedureOperationService {
         List<String> currentDepts = tasks.stream()
             .filter(t -> !"COMPLETED".equals(t.getStatus()))
             .map(ProcedureTaskDocument::getDepartmentId)
+            .map(this::departmentDisplayName)
             .distinct()
             .toList();
 
@@ -324,6 +371,7 @@ public class ProcedureOperationService {
             .clientId(proc.getClientId())
             .clientName(proc.getClientName())
             .clientCi(proc.getClientCi())
+            .invitedUsers(proc.getInvitedUsers() == null ? List.of() : proc.getInvitedUsers())
             .status(proc.getStatus())
             .createdAt(proc.getCreatedAt())
             .updatedAt(proc.getUpdatedAt())
@@ -332,31 +380,12 @@ public class ProcedureOperationService {
             .currentDepartments(currentDepts)
             .currentTasks(currentTaskNames)
             .finalObservation(observation)
-            .pendingSignatureRequests(pendingSignatureRequests(tasks))
             .pendingClientTasks(pendingClientTasks)
             .build();
     }
 
-    private List<Map<String, Object>> pendingSignatureRequests(List<ProcedureTaskDocument> tasks) {
-        List<Map<String, Object>> pending = new ArrayList<>();
-        for (ProcedureTaskDocument task : tasks) {
-            if (task.getFormFields() == null) continue;
-            for (Map<String, Object> field : task.getFormFields()) {
-                if (!"SIGNATURE".equalsIgnoreCase(String.valueOf(field.get("type")))) continue;
-                String fieldId = String.valueOf(field.get("id"));
-                Object value = task.getFormValues() == null ? null : task.getFormValues().get(fieldId);
-                boolean signed = value != null && String.valueOf(value).toUpperCase().contains("FIRMADA");
-                if (signed) continue;
-                pending.add(Map.of(
-                        "taskId", task.getId(),
-                        "fieldId", fieldId,
-                        "label", String.valueOf(field.getOrDefault("label", "Firma del cliente")),
-                        "message", String.valueOf(field.getOrDefault("signatureMessage", "Se requiere tu firma digital.")),
-                        "taskLabel", task.getNodeLabel() == null ? "Etapa del trámite" : task.getNodeLabel()
-                ));
-            }
-        }
-        return pending;
+    private boolean containsUsername(List<String> usernames, String username) {
+        return usernames != null && usernames.stream().anyMatch(value -> username.equals(value));
     }
 
     public List<Map<String, Object>> learningEvents() {
@@ -429,7 +458,7 @@ public class ProcedureOperationService {
                 .formTitle(node.path("config").path("form").path("title").asText(node.path("label").asText("Formulario")))
                 .formFields(fields)
                 .status(isClientTask ? "ASSIGNED" : "PENDING")
-                .assignedTo(isClientTask ? procedure.getClientName() : null)
+                .assignedTo(isClientTask ? procedure.getClientCi() : null)
                 .assignedAt(isClientTask ? LocalDateTime.now() : null)
                 .createdAt(LocalDateTime.now())
                 .build());
@@ -438,16 +467,6 @@ public class ProcedureOperationService {
     }
 
     private void notifyClientIfApplicable(ProcedureDocument procedure, ProcedureTaskDocument task, JsonNode node, List<Map<String, Object>> fields) {
-        JsonNode config = node.path("config");
-        boolean notifyByTask = config.path("notifyClient").asBoolean(false) || config.path("visibleToClient").asBoolean(false);
-
-        if (notifyByTask) {
-            notifyClientByCi(procedure.getClientCi(),
-                    "Avance de trámite: " + procedure.getPolicyName(),
-                    "Tu trámite avanzó a: " + task.getNodeLabel(),
-                    Map.of("procedureId", procedure.getId(), "taskId", task.getId(), "type", "STATUS_UPDATE"));
-        }
-
         for (Map<String, Object> field : fields) {
             boolean requireSignature = "SIGNATURE".equalsIgnoreCase(String.valueOf(field.get("type")));
             boolean notifyClient = Boolean.TRUE.equals(field.get("notifyClient")) || Boolean.TRUE.equals(field.get("visibleToClient"));
@@ -467,6 +486,13 @@ public class ProcedureOperationService {
         }
     }
 
+    private void notifyClientTaskAccepted(ProcedureDocument procedure, ProcedureTaskDocument task) {
+        notifyClientByCi(procedure.getClientCi(),
+                "Avance de trámite: " + procedure.getPolicyName(),
+                "Tu trámite avanzó a: " + task.getNodeLabel(),
+                Map.of("procedureId", procedure.getId(), "taskId", task.getId(), "type", "STATUS_UPDATE"));
+    }
+
     private void closeProcedure(ProcedureDocument procedure, JsonNode end) {
         procedure.setStatus(end.path("config").path("finalStatus").asText("COMPLETED"));
         procedure.setCompletedAt(LocalDateTime.now());
@@ -476,20 +502,6 @@ public class ProcedureOperationService {
                 "Trámite finalizado: " + procedure.getPolicyName(),
                 end.path("config").path("customerMessage").asText("Tu trámite finalizó. Revisá el resultado en la app."),
                 Map.of("procedureId", procedure.getId(), "type", "PROCEDURE_CLOSED"));
-    }
-
-    private void notifySignatureRequests(ProcedureDocument procedure, ProcedureTaskDocument task) {
-        if (task.getFormValues() == null || task.getFormFields() == null) return;
-        for (Map<String, Object> field : task.getFormFields()) {
-            if (!"SIGNATURE".equalsIgnoreCase(String.valueOf(field.get("type")))) continue;
-            Object value = task.getFormValues().get(String.valueOf(field.get("id")));
-            if (value == null || !String.valueOf(value).toUpperCase().contains("SOLICITADA")) continue;
-            String customMessage = String.valueOf(field.getOrDefault("signatureMessage", "")).trim();
-            notifyClientByCi(procedure.getClientCi(),
-                    "Firma pendiente",
-                    customMessage.isBlank() ? "Tenés una firma pendiente para: " + String.valueOf(field.get("label")) : customMessage,
-                    Map.of("procedureId", procedure.getId(), "taskId", task.getId(), "fieldId", String.valueOf(field.get("id")), "type", "SIGNATURE_REQUESTED"));
-        }
     }
 
     private void notifyClientByCi(String clientCi, String title, String body, Map<String, String> data) {
@@ -583,8 +595,182 @@ public class ProcedureOperationService {
         catch (Exception e) { throw new ResponseStatusException(HttpStatus.CONFLICT, "La política no tiene reglas válidas."); }
     }
 
+    private String departmentDisplayName(String departmentId) {
+        if (departmentId == null || departmentId.isBlank()) {
+            return "Sin departamento";
+        }
+
+        return departmentRepository.findById(departmentId)
+                .map(Department::getName)
+                .orElse(departmentId);
+    }
+
+    private ClientLookupResolution resolveClientLookup(String clientCi, String clientEmail) {
+        User clientByCi = findClientByCi(clientCi).orElse(null);
+        User clientByEmail = findClientByEmail(clientEmail).orElse(null);
+
+        if (clientByCi != null && clientByEmail != null && !clientByCi.getId().equals(clientByEmail.getId())) {
+            return ClientLookupResolution.conflict(clientByCi, clientByEmail);
+        }
+
+        User resolvedClient = clientByCi != null ? clientByCi : clientByEmail;
+        if (resolvedClient != null) {
+            return ClientLookupResolution.existing(resolvedClient);
+        }
+
+        return ClientLookupResolution.newClient();
+    }
+
+    private Optional<User> findClientByCi(String clientCi) {
+        if (!hasText(clientCi)) {
+            return Optional.empty();
+        }
+        return userRepository.findByUsername(clientCi.trim());
+    }
+
+    private Optional<User> findClientByEmail(String clientEmail) {
+        if (!hasText(clientEmail)) {
+            return Optional.empty();
+        }
+        return userRepository.findByEmail(clientEmail.trim());
+    }
+
+    private boolean isClientUser(User user) {
+        return user.getRoles() != null && user.getRoles().contains(Role.CLIENT);
+    }
+
+    private boolean matchesSuggestionQuery(User user, String loweredQuery) {
+        return safeLower(user.getUsername()).contains(loweredQuery)
+                || safeLower(user.getEmail()).contains(loweredQuery)
+                || safeLower(user.getName()).contains(loweredQuery);
+    }
+
+    private int suggestionScore(User user, String loweredQuery) {
+        String username = safeLower(user.getUsername());
+        String email = safeLower(user.getEmail());
+        String name = safeLower(user.getName());
+
+        if (username.startsWith(loweredQuery)) return 0;
+        if (email.startsWith(loweredQuery)) return 1;
+        if (name.startsWith(loweredQuery)) return 2;
+        if (username.contains(loweredQuery)) return 3;
+        if (email.contains(loweredQuery)) return 4;
+        if (name.contains(loweredQuery)) return 5;
+        return 6;
+    }
+
+    private String safeLower(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private User createClient(CreateProcedureRequest request) {
+        String clientCi = normalizeClientValue(request.getClientCi());
+        User clientUser = new User();
+        clientUser.setUsername(clientCi);
+        clientUser.setEmail(hasText(request.getClientEmail()) ? request.getClientEmail().trim() : clientCi + "@cliente.local");
+        clientUser.setPassword(passwordEncoder.encode(clientCi));
+        clientUser.setRoles(List.of(Role.CLIENT));
+        clientUser.setDepartmentIds(List.of());
+        clientUser.setName(request.getClientFullName());
+        clientUser.setActive(true);
+        return userRepository.save(clientUser);
+    }
+
+    private String normalizeClientValue(String value) {
+        return value == null ? null : value.trim();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private static ClientLookupUserResponse toClientLookupUserResponse(User user) {
+        if (user == null) {
+            return null;
+        }
+        return ClientLookupUserResponse.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .email(user.getEmail())
+                .name(user.getName())
+                .build();
+    }
+
+    private record ClientLookupResolution(ClientLookupStatus status,
+                                          String message,
+                                          User resolvedClient,
+                                          User clientByCi,
+                                          User clientByEmail) {
+        private static ClientLookupResolution existing(User user) {
+            return new ClientLookupResolution(ClientLookupStatus.EXISTING, "El cliente ya existe.", user, user, user);
+        }
+
+        private static ClientLookupResolution conflict(User clientByCi, User clientByEmail) {
+            String ciLabel = clientByCi.getName() != null && !clientByCi.getName().isBlank() ? clientByCi.getName() : clientByCi.getUsername();
+            String emailLabel = clientByEmail.getName() != null && !clientByEmail.getName().isBlank() ? clientByEmail.getName() : clientByEmail.getUsername();
+            String message = "El CI pertenece a " + ciLabel + " y el email pertenece a " + emailLabel + ".";
+            return new ClientLookupResolution(ClientLookupStatus.CONFLICT, message, null, clientByCi, clientByEmail);
+        }
+
+        private static ClientLookupResolution newClient() {
+            return new ClientLookupResolution(ClientLookupStatus.NEW, "No existe un cliente con esos datos.", null, null, null);
+        }
+
+        private ClientLookupResponse toResponse() {
+            return ClientLookupResponse.builder()
+                    .status(status)
+                    .message(message)
+                    .client(toClientLookupUserResponse(resolvedClient))
+                    .clientByCi(toClientLookupUserResponse(clientByCi))
+                    .clientByEmail(toClientLookupUserResponse(clientByEmail))
+                    .build();
+        }
+    }
+
     private ProcedureTaskDocument requireTask(String taskId) {
         return taskRepository.findById(taskId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tarea no encontrada."));
+    }
+
+    private boolean canActOnTask(ProcedureTaskDocument task, ProcedureDocument procedure, String username) {
+        if (username == null || username.isBlank()) {
+            return false;
+        }
+
+        if (username.equals(task.getAssignedTo())) {
+            return true;
+        }
+
+        if (!"CLIENT_TASK".equals(task.getTaskType())) {
+            return false;
+        }
+
+        if (username.equals(procedure.getClientCi()) || username.equals(procedure.getClientName()) || username.equals(procedure.getClientId())) {
+            return true;
+        }
+
+        return userRepository.findByUsername(username)
+                .map(user -> username.equals(user.getUsername())
+                        || username.equals(user.getEmail())
+                        || username.equals(user.getName())
+                        || (procedure.getClientId() != null && procedure.getClientId().equals(user.getId()))
+                        || (procedure.getClientCi() != null && procedure.getClientCi().equals(user.getUsername()))
+                        || (procedure.getClientCi() != null && procedure.getClientCi().equals(user.getEmail()))
+                        || (procedure.getClientName() != null && procedure.getClientName().equals(user.getName())))
+                .orElse(false);
+    }
+
+    private boolean canSeeProcedure(ProcedureDocument procedure, String username) {
+        if (username == null || username.isBlank()) {
+            return false;
+        }
+
+        if (username.equals(procedure.getCreatedBy()) || username.equals(procedure.getClientCi()) || containsUsername(procedure.getInvitedUsers(), username)) {
+            return true;
+        }
+
+        return taskRepository.findByAssignedToOrderByCreatedAtDesc(username).stream()
+                .map(ProcedureTaskDocument::getProcedureId)
+                .anyMatch(procedure.getId()::equals);
     }
 
     private List<String> userDepartments(String username) {

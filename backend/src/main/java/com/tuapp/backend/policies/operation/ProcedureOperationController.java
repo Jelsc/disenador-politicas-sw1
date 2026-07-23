@@ -1,6 +1,8 @@
 package com.tuapp.backend.policies.operation;
 
 import com.tuapp.backend.policies.operation.dto.ProcedureTrackingResponse;
+import com.tuapp.backend.policies.operation.dto.ClientLookupResponse;
+import com.tuapp.backend.policies.operation.dto.ClientLookupUserResponse;
 import com.tuapp.backend.policies.domain.Policy;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,6 +36,22 @@ public class ProcedureOperationController {
         return ResponseEntity.ok(service.currentUserContext(username(authentication)));
     }
 
+    @GetMapping("/client-lookup")
+    @PreAuthorize("hasRole('OPERATOR') or hasRole('ADMIN')")
+    public ResponseEntity<ClientLookupResponse> clientLookup(@RequestParam(required = false) String clientCi,
+                                                             @RequestParam(required = false) String clientEmail,
+                                                             Authentication authentication) {
+        return ResponseEntity.ok(service.clientLookup(clientCi, clientEmail, username(authentication)));
+    }
+
+    @GetMapping("/client-suggestions")
+    @PreAuthorize("hasRole('OPERATOR') or hasRole('ADMIN')")
+    public ResponseEntity<List<ClientLookupUserResponse>> clientSuggestions(@RequestParam(required = false, name = "q") String query,
+                                                                            @RequestParam(required = false, defaultValue = "5") Integer limit,
+                                                                            Authentication authentication) {
+        return ResponseEntity.ok(service.clientSuggestions(query, limit, username(authentication)));
+    }
+
     @PostMapping("/procedures")
     @PreAuthorize("hasRole('OPERATOR') or hasRole('ADMIN')")
     public ResponseEntity<ProcedureDocument> createProcedure(@RequestBody CreateProcedureRequest request, Authentication authentication) {
@@ -64,7 +82,7 @@ public class ProcedureOperationController {
     }
 
     @PostMapping("/procedures/{procedureId}/tasks/{taskId}/files")
-    @PreAuthorize("hasRole('OPERATOR') or hasRole('ADMIN')")
+    @PreAuthorize("hasRole('CLIENT') or hasRole('OPERATOR') or hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> uploadTaskFile(
             @PathVariable String procedureId,
             @PathVariable String taskId,
@@ -74,8 +92,13 @@ public class ProcedureOperationController {
         return ResponseEntity.ok(service.uploadTaskFile(procedureId, taskId, fieldId, file, username(authentication)));
     }
 
+    @GetMapping("/procedures/{procedureId}/processes")
+    public ResponseEntity<List<ProcedureTaskDocument>> procedureProcesses(@PathVariable String procedureId, Authentication authentication) {
+        return ResponseEntity.ok(service.procedureProcesses(procedureId, username(authentication)));
+    }
+
     @PostMapping("/tasks/{taskId}/complete")
-    @PreAuthorize("hasRole('OPERATOR') or hasRole('ADMIN')")
+    @PreAuthorize("hasRole('CLIENT') or hasRole('OPERATOR') or hasRole('ADMIN')")
     public ResponseEntity<ProcedureTaskDocument> completeTask(@PathVariable String taskId, @RequestBody CompleteTaskRequest request, Authentication authentication) {
         return ResponseEntity.ok(service.completeTask(taskId, request, username(authentication)));
     }

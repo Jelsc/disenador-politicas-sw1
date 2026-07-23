@@ -1,6 +1,9 @@
 package com.tuapp.backend.documents.presentation.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
+
+import com.tuapp.backend.documents.collaboration.DocumentPresenceParticipant;
 
 public record DocumentVersionResponse(
         String id,
@@ -8,6 +11,7 @@ public record DocumentVersionResponse(
         String policyId,
         String documentId,
         Integer version,
+        String versionName,
         String originalFileName,
         String storageKey,
         String contentType,
@@ -16,6 +20,9 @@ public record DocumentVersionResponse(
         String traceAction,
         String traceNote,
         LocalDateTime createdAt,
-        String downloadUri
+        String downloadUri,
+        boolean onlyOfficeSupported,
+        String onlyOfficeEditorUrl,
+        List<DocumentPresenceParticipant> activeEditors
 ) {
 }

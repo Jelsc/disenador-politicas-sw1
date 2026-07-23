@@ -1,14 +1,11 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/procedure_ticket.dart';
 import '../services/api_service.dart';
-import 'signature_capture_screen.dart';
 import 'repository_screen.dart';
 import 'client_task_screen.dart';
 
@@ -42,81 +39,16 @@ class ProcedureDetailScreen extends StatefulWidget {
 }
 
 class _ProcedureDetailScreenState extends State<ProcedureDetailScreen> {
-  bool _isUploadingSignature = false;
-  Uint8List? _lastSignature;
-
   ApiService get _api => widget.apiService ?? ApiService();
-
-  SignatureRequest? get _focusedSignature {
-    final requests = widget.procedure.pendingSignatureRequests;
-    if (requests.isEmpty) return null;
-    for (final request in requests) {
-      if (request.taskId == widget.initialTaskId ||
-          request.fieldId == widget.initialFieldId) {
-        return request;
-      }
-    }
-    return requests.first;
-  }
-
-  Future<void> _startSignature(SignatureRequest request) async {
-    final bytes = await Navigator.push<Uint8List>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SignatureCaptureScreen(
-          title: request.label,
-          message: request.message,
-        ),
-      ),
-    );
-    if (bytes == null) return;
-    await _submitSignature(request, bytes);
-  }
 
   @override
   void initState() {
     super.initState();
   }
 
-  Future<void> _submitSignature(
-    SignatureRequest request,
-    Uint8List bytes,
-  ) async {
-    setState(() => _isUploadingSignature = true);
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-    final success =
-        token != null &&
-        await _api.submitClientSignature(
-          token: token,
-          procedureId: widget.procedure.id,
-          taskId: request.taskId,
-          fieldId: request.fieldId,
-          imageBase64: base64Encode(bytes),
-        );
-
-    if (!mounted) return;
-    setState(() {
-      _isUploadingSignature = false;
-      if (success) _lastSignature = bytes;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          success
-              ? 'Firma enviada correctamente.'
-              : 'No se pudo enviar la firma.',
-        ),
-        backgroundColor: success ? const Color(0xFF166534) : Colors.red,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final proc = widget.procedure;
-    final signature = _focusedSignature;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F1E8),
@@ -136,13 +68,6 @@ class _ProcedureDetailScreenState extends State<ProcedureDetailScreen> {
           _clientTasksCard(proc),
           const SizedBox(height: 14),
           _documentRepositoryCard(),
-          const SizedBox(height: 14),
-          if (signature != null)
-            _signatureCard(signature),
-          if (_lastSignature != null) ...[
-            const SizedBox(height: 14),
-            _signaturePreview(),
-          ],
         ],
       ),
     );
@@ -305,81 +230,6 @@ class _ProcedureDetailScreenState extends State<ProcedureDetailScreen> {
               'Departamento actual',
               proc.currentDepartments.join(', '),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _signatureCard(SignatureRequest request) {
-    return _surface(
-      accent: true,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.draw_outlined, color: Color(0xFF92400E)),
-              SizedBox(width: 10),
-              Text(
-                'Firma requerida',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(request.message),
-          const SizedBox(height: 8),
-          Text(
-            'Etapa: ${request.taskLabel}',
-            style: const TextStyle(color: Color(0xFF7B7063)),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _isUploadingSignature
-                ? null
-                : () => _startSignature(request),
-            icon: _isUploadingSignature
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.edit_outlined),
-            label: Text(
-              _isUploadingSignature
-                  ? 'Enviando firma...'
-                  : 'Firmar con el dedo',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _noSignatureCard() {
-    return const SizedBox.shrink();
-  }
-
-  Widget _signaturePreview() {
-    return _surface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Última firma enviada',
-            style: TextStyle(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            height: 120,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE3D8C5)),
-            ),
-            child: Image.memory(_lastSignature!),
-          ),
         ],
       ),
     );

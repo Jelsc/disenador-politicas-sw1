@@ -32,7 +32,7 @@ class FakeProcedureApiService extends ApiService {
   }
 
   @override
-  Future<bool> uploadProcedureDocument({
+  Future<Map<String, dynamic>> uploadProcedureDocument({
     required String token,
     required String procedureId,
     required String fileName,
@@ -40,7 +40,7 @@ class FakeProcedureApiService extends ApiService {
     String? documentId,
   }) async {
     uploadCalled = true;
-    return true;
+    return {'success': true};
   }
 }
 
@@ -72,45 +72,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Repositorio documental'), findsOneWidget);
-    expect(find.text('evidencia.pdf'), findsOneWidget);
-    expect(find.textContaining('Trazabilidad: NEW_VERSION'), findsOneWidget);
+    expect(find.text('Abrir repositorio'), findsOneWidget);
   });
-
-  testWidgets('permite subir un documento desde el detalle', (tester) async {
-    SharedPreferences.setMockInitialValues({'token': 'abc'});
-    final api = FakeProcedureApiService();
-
-    final procedure = ProcedureTicket(
-      id: 'proc-1',
-      policyId: 'policy-1',
-      policyName: 'Licencia de funcionamiento',
-      status: 'OPEN',
-      progressPercentage: 60,
-      currentDepartments: const ['Legal'],
-      currentTasks: const ['Revisión documental'],
-      pendingSignatureRequests: const [], pendingClientTasks: const [],
-      createdAt: DateTime(2026, 6, 1, 9, 0),
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ProcedureDetailScreen(
-          procedure: procedure,
-          apiService: api,
-          documentPicker: () async => SelectedProcedureDocument(
-            fileName: 'nuevo.pdf',
-            bytes: Uint8List.fromList([1, 2, 3]),
-          ),
-        ),
-      ),
-    );
-
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Subir documento'));
-    await tester.pumpAndSettle();
-
-    expect(api.uploadCalled, isTrue);
-    expect(find.text('Documento cargado correctamente.'), findsOneWidget);
-  });
-
 }

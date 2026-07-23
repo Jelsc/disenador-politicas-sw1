@@ -29,12 +29,34 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
 
   ApiService get _api => widget.apiService ?? ApiService();
 
+  String _fieldType(ClientTaskField field) => field.type.toUpperCase();
+
+  bool _isValueFilled(dynamic value) {
+    if (value == null) return false;
+    if (value is String) return value.trim().isNotEmpty;
+    if (value is bool) return value;
+    if (value is Iterable) return value.isNotEmpty;
+    return value.toString().trim().isNotEmpty;
+  }
+
+  List<String> _optionsFor(ClientTaskField field) => field.options ?? const [];
+
+  void _toggleMultiValue(String fieldId, String option, bool checked) {
+    final current = List<String>.from(_formValues[fieldId] as List? ?? const []);
+    if (checked) {
+      if (!current.contains(option)) current.add(option);
+    } else {
+      current.remove(option);
+    }
+    _formValues[fieldId] = current;
+  }
+
   Future<void> _submitForm() async {
     // Validate required
     for (final field in widget.task.fields) {
       if (field.required) {
         final val = _formValues[field.id];
-        if (val == null || val.toString().trim().isEmpty) {
+        if (!_isValueFilled(val)) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('El campo "${field.label}" es obligatorio.'),
@@ -93,7 +115,7 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
         final token = prefs.getString('token');
 
         if (token != null) {
-          final success = await _api.uploadTaskDocument(
+          final response = await _api.uploadTaskDocument(
             token: token,
             procedureId: widget.procedure.id,
             taskId: widget.task.id,
@@ -101,24 +123,24 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
             fileName: file.name,
             bytes: file.bytes!,
           );
-          if (success) {
+          if (response['success'] == false) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(response['message']?.toString() ?? 'Error al subir el archivo.'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          } else {
             setState(() {
-              _formValues[field.id] = file.name;
+              _formValues[field.id] = response;
             });
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Archivo subido correctamente.'),
                   backgroundColor: Color(0xFF166534),
-                ),
-              );
-            }
-          } else {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Error al subir el archivo.'),
-                  backgroundColor: Colors.red,
                 ),
               );
             }
@@ -238,8 +260,11 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
   }
 
   Widget _buildFieldInput(ClientTaskField field) {
-    if (field.type.toUpperCase() == 'FILE') {
+    final type = _fieldType(field);
+
+    if (type == 'FILE') {
       final value = _formValues[field.id];
+      final label = _uploadedFileLabel(value);
       return Container(
         width: double.infinity,
         decoration: BoxDecoration(
@@ -252,7 +277,7 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
           children: [
             Icon(Icons.upload_file, size: 40, color: value != null ? const Color(0xFF166534) : const Color(0xFFB45309)),
             const SizedBox(height: 8),
-            Text(value != null ? 'Archivo subido: $value' : 'Adjuntar archivo'),
+            Text(value != null ? 'Archivo subido: $label' : 'Adjuntar archivo'),
             const SizedBox(height: 12),
             OutlinedButton(
               onPressed: () => _pickFile(field),
@@ -263,7 +288,7 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
       );
     }
 
-    if (field.type.toUpperCase() == 'SIGNATURE') {
+    if (type == 'SIGNATURE') {
       final value = _formValues[field.id];
       final signed = value == '[FIRMADA]';
       return Container(
@@ -291,7 +316,7 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
       );
     }
 
-    if (field.type.toUpperCase() == 'TABLE') {
+    if (type == 'TABLE') {
       final columns = field.tableColumns != null && field.tableColumns!.isNotEmpty
           ? field.tableColumns!
           : ['Dato'];
@@ -355,12 +380,95 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
       );
     }
 
+    if (type == 'SINGLE_CHOICE' || type == 'CHECKBOX') {
+      final options = _optionsFor(field);
+      final currentValue = _formValues[field.id] as String?;
+
+      if (options.isEmpty) {
+        return const Text('No hay opciones configuradas para este campo.');
+      }
+
+      if (type == 'CHECKBOX') {
+        final label = options.isNotEmpty ? options.first : field.label;
+        final checked = _formValues[field.id] == true;
+
+        return CheckboxListTile(
+          value: checked,
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: Text(label),
+          onChanged: (value) {
+            setState(() {
+              _formValues[field.id] = value ?? false;
+            });
+          },
+        );
+      }
+
+      return DropdownButtonFormField<String>(
+        initialValue: options.contains(currentValue) ? currentValue : null,
+        decoration: InputDecoration(
+          hintText: field.placeholder ?? 'Seleccioná una opción',
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE3D8C5)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE3D8C5)),
+          ),
+        ),
+        items: options
+            .map((option) => DropdownMenuItem<String>(value: option, child: Text(option)))
+            .toList(),
+        onChanged: (value) {
+          setState(() {
+            _formValues[field.id] = value;
+          });
+        },
+      );
+    }
+
+    if (type == 'MULTIPLE_CHOICE' || type == 'CHECKLIST') {
+      final options = _optionsFor(field);
+
+      if (options.isEmpty) {
+        return const Text('No hay opciones configuradas para este campo.');
+      }
+
+      return StatefulBuilder(
+        builder: (context, setStateLocal) {
+          final selected = List<String>.from(_formValues[field.id] as List? ?? const []);
+
+          return Column(
+            children: options.map((option) {
+              final checked = selected.contains(option);
+              return CheckboxListTile(
+                value: checked,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(option),
+                onChanged: (value) {
+                  setStateLocal(() {
+                    _toggleMultiValue(field.id, option, value ?? false);
+                  });
+                  setState(() {});
+                },
+              );
+            }).toList(),
+          );
+        },
+      );
+    }
+
     return TextFormField(
       initialValue: _formValues[field.id]?.toString(),
       onChanged: (val) {
         _formValues[field.id] = val;
       },
-      maxLines: field.type.toUpperCase() == 'LONG_TEXT' ? 4 : 1,
+      maxLines: type == 'LONG_TEXT' ? 4 : 1,
       decoration: InputDecoration(
         hintText: field.placeholder,
         filled: true,
@@ -375,5 +483,23 @@ class _ClientTaskScreenState extends State<ClientTaskScreen> {
         ),
       ),
     );
+  }
+
+  String _uploadedFileLabel(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      final candidates = [value['fileName'], value['originalName'], value['name']];
+      for (final candidate in candidates) {
+        final text = candidate?.toString().trim() ?? '';
+        if (text.isNotEmpty) {
+          return text;
+        }
+      }
+    }
+
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+
+    return 'Archivo subido';
   }
 }

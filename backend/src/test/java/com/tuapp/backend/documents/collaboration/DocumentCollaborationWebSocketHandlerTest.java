@@ -9,6 +9,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.net.URI;
+import java.util.Optional;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,14 +20,21 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.tuapp.backend.users.domain.User;
+import com.tuapp.backend.users.domain.UserRepository;
+
 class DocumentCollaborationWebSocketHandlerTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private DocumentCollaborationWebSocketHandler handler;
+    private DocumentPresenceRegistry registry;
+    private UserRepository userRepository;
 
     @BeforeEach
     void setUp() {
-        handler = new DocumentCollaborationWebSocketHandler();
+        registry = new DocumentPresenceRegistry();
+        userRepository = mock(UserRepository.class);
+        handler = new DocumentCollaborationWebSocketHandler(registry, userRepository);
     }
 
     @Test
@@ -34,6 +42,10 @@ class DocumentCollaborationWebSocketHandlerTest {
         WebSocketSession ana = session("ana", "ws://localhost/ws/documents/proc-1/doc-1?username=ana");
         WebSocketSession luis = session("luis", "ws://localhost/ws/documents/proc-1/doc-1?username=luis");
         WebSocketSession other = session("sofia", "ws://localhost/ws/documents/proc-1/doc-2?username=sofia");
+
+        when(userRepository.findByUsername("ana")).thenReturn(Optional.of(user("ana", "Ana Lopez", "ana@example.com")));
+        when(userRepository.findByUsername("luis")).thenReturn(Optional.of(user("luis", "Luis Perez", "luis@example.com")));
+        when(userRepository.findByUsername("sofia")).thenReturn(Optional.of(user("sofia", "Sofia Gomez", "sofia@example.com")));
 
         handler.afterConnectionEstablished(ana);
         handler.afterConnectionEstablished(luis);
@@ -48,6 +60,8 @@ class DocumentCollaborationWebSocketHandlerTest {
         assertThat(payload.path("observersCount").asInt()).isEqualTo(2);
         assertThat(List.of(payload.path("viewers").get(0).asText(), payload.path("viewers").get(1).asText()))
                 .containsExactly("ana", "luis");
+        assertThat(payload.path("activeEditors").get(0).path("name").asText()).isEqualTo("Ana Lopez");
+        assertThat(payload.path("activeEditors").get(0).path("email").asText()).isEqualTo("ana@example.com");
 
         assertThat(otherPayload.path("documentId").asText()).isEqualTo("doc-2");
         assertThat(otherPayload.path("observersCount").asInt()).isEqualTo(1);
@@ -59,6 +73,9 @@ class DocumentCollaborationWebSocketHandlerTest {
         WebSocketSession ana = session("ana", "ws://localhost/ws/documents/proc-1/doc-1?username=ana");
         WebSocketSession luis = session("luis", "ws://localhost/ws/documents/proc-1/doc-1?username=luis");
 
+        when(userRepository.findByUsername("ana")).thenReturn(Optional.of(user("ana", "Ana Lopez", "ana@example.com")));
+        when(userRepository.findByUsername("luis")).thenReturn(Optional.of(user("luis", "Luis Perez", "luis@example.com")));
+
         handler.afterConnectionEstablished(ana);
         handler.afterConnectionEstablished(luis);
         handler.afterConnectionClosed(ana, CloseStatus.NORMAL);
@@ -69,6 +86,15 @@ class DocumentCollaborationWebSocketHandlerTest {
         assertThat(payload.path("viewers").isArray()).isTrue();
         assertThat(payload.path("viewers").size()).isEqualTo(1);
         assertThat(payload.path("viewers").get(0).asText()).isEqualTo("luis");
+        assertThat(payload.path("activeEditors").get(0).path("email").asText()).isEqualTo("luis@example.com");
+    }
+
+    private User user(String username, String name, String email) {
+        User user = new User();
+        user.setUsername(username);
+        user.setName(name);
+        user.setEmail(email);
+        return user;
     }
 
     private WebSocketSession session(String id, String uri) throws Exception {

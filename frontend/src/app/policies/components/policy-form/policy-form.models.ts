@@ -1,6 +1,6 @@
 export type BoardNodeType = 'START' | 'TASK' | 'GATEWAY' | 'PARALLEL' | 'JOIN' | 'END' | 'OBJECT' | 'NOTE' | 'REGION';
 export type ConnectorKind = 'CONTROL_FLOW' | 'OBJECT_FLOW';
-export type TaskFormFieldType = 'SHORT_TEXT' | 'LONG_TEXT' | 'NUMBER' | 'DATE' | 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'CHECKBOX' | 'FILE' | 'RESULT' | 'SIGNATURE' | 'TABLE';
+export type TaskFormFieldType = 'SHORT_TEXT' | 'LONG_TEXT' | 'NUMBER' | 'DATE' | 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'CHECKLIST' | 'CHECKBOX' | 'FILE' | 'RESULT' | 'SIGNATURE' | 'TABLE';
 
 export interface TaskFormField {
   id: string;

@@ -21,8 +21,12 @@ public class DocumentVersionDocument {
     private String policyId;
     private String documentId;
     private Integer version;
+    private String versionName;
     private String originalFileName;
     private String storageKey;
+    private String workingCopyStorageKey;
+    private Integer workingCopyRevision;
+    private LocalDateTime workingCopyUpdatedAt;
     private String contentType;
     private Long size;
     private String createdBy;

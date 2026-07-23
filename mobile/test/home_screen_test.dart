@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:mobile/models/ai_request_draft.dart';
 import 'package:mobile/models/client_notification.dart';
 import 'package:mobile/models/procedure_ticket.dart';
 import 'package:mobile/screens/home_screen.dart';
@@ -40,15 +38,7 @@ void main() {
       progressPercentage: 65,
       currentDepartments: const ['Legal'],
       currentTasks: const ['Revisión documental'],
-      pendingSignatureRequests: [
-        SignatureRequest(
-          taskId: 'task-1',
-          fieldId: 'field-1',
-          label: 'Firma del cliente',
-          message: 'Se requiere tu firma para continuar.',
-          taskLabel: 'Validación final',
-        ),
-      ],
+      pendingSignatureRequests: const [],
       pendingClientTasks: const [],
       createdAt: DateTime(2026, 6, 1, 9, 0),
     );
@@ -85,16 +75,11 @@ void main() {
     await tester.pump();
 
     expect(find.text('Firma pendiente'), findsOneWidget);
-    expect(find.text('Firmar pendiente'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('Solicitudes IA'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-
-    expect(find.text('Solicitudes IA'), findsOneWidget);
+    expect(find.text('Firmar pendiente'), findsNothing);
+    expect(find.byTooltip('Asistente Virtual'), findsOneWidget);
   });
 
-  testWidgets('abre el detalle del trámite con documentos y firma', (tester) async {
+  testWidgets('abre el detalle del trámite con repositorio', (tester) async {
     final api = FakeHomeApiService();
 
     await tester.pumpWidget(
@@ -111,12 +96,10 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('procedure-card-proc-1')));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
 
     expect(find.text('Repositorio documental'), findsOneWidget);
-    expect(find.text('Subir documento'), findsOneWidget);
+    expect(find.text('Abrir repositorio'), findsOneWidget);
   });
 
   testWidgets('abre la bandeja de notificaciones desde el ledger', (tester) async {
@@ -140,32 +123,4 @@ void main() {
     expect(find.text('Ver todo'), findsOneWidget);
   });
 
-  testWidgets('muestra la tarjeta de reanudación del borrador', (tester) async {
-    SharedPreferences.setMockInitialValues({
-      AiRequestDraftStore.storageKey: AiRequestDraft(
-        modeName: 'intake',
-        text: 'Dictado pendiente',
-        audioBase64: '',
-        useAudioPayload: false,
-        updatedAt: DateTime.parse('2026-06-07T10:15:00Z'),
-      ).toStorageValue(),
-    });
-    final api = FakeHomeApiService();
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: HomeScreen(
-          apiService: api,
-          skipNotificationSetup: true,
-          initialProcedures: [buildProcedure()],
-          initialNotifications: [buildNotification()],
-          initialUnreadCount: 1,
-        ),
-      ),
-    );
-    await tester.pump(const Duration(milliseconds: 200));
-
-    expect(find.text('Continuar solicitud IA'), findsOneWidget);
-    expect(find.text('Reanudar'), findsOneWidget);
-  });
 }

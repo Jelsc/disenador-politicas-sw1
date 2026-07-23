@@ -2,12 +2,19 @@ import { Injectable, signal } from '@angular/core';
 
 import { environment } from '../../../environments/environment';
 
+export interface DocumentPresenceParticipant {
+  username: string;
+  name: string;
+  email: string;
+}
+
 export interface DocumentPresenceSnapshot {
   type: 'DOCUMENT_PRESENCE_STATE';
   procedureId: string;
   documentId: string;
   observersCount: number;
   viewers: string[];
+  activeEditors?: DocumentPresenceParticipant[];
   timestamp: number;
 }
 
@@ -18,6 +25,8 @@ export class DocumentCollaborationService {
   readonly connected = signal(false);
   readonly observerCount = signal(0);
   readonly viewers = signal<string[]>([]);
+  readonly activeEditors = signal<DocumentPresenceParticipant[]>([]);
+  readonly snapshotRevision = signal(0);
   readonly activeProcedureId = signal<string | null>(null);
   readonly activeDocumentId = signal<string | null>(null);
   readonly activeUsername = signal<string | null>(null);
@@ -29,7 +38,9 @@ export class DocumentCollaborationService {
 
     const nextUsername = this.normalizeUsername(username);
     const baseWsUrl = environment.wsUrl.replace('/ws', '');
-    const socket = new WebSocket(`${baseWsUrl}/ws/documents/${procedureId}/${documentId}?username=${encodeURIComponent(nextUsername)}`);
+    const socket = new WebSocket(
+      `${baseWsUrl}/ws/documents/${encodeURIComponent(procedureId)}/${encodeURIComponent(documentId)}?username=${encodeURIComponent(nextUsername)}`
+    );
 
     this.disconnect();
     this.activeProcedureId.set(procedureId);
@@ -88,6 +99,8 @@ export class DocumentCollaborationService {
 
       this.observerCount.set(Number(snapshot.observersCount) || 0);
       this.viewers.set(Array.isArray(snapshot.viewers) ? snapshot.viewers : []);
+      this.activeEditors.set(Array.isArray(snapshot.activeEditors) ? snapshot.activeEditors : []);
+      this.snapshotRevision.update(revision => revision + 1);
     } catch {
       // Ignore malformed websocket payloads.
     }
@@ -96,6 +109,7 @@ export class DocumentCollaborationService {
   private clearPresence(): void {
     this.observerCount.set(0);
     this.viewers.set([]);
+    this.activeEditors.set([]);
   }
 
   private normalizeUsername(username?: string | null): string {

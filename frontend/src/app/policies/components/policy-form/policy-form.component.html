@@ -266,7 +266,7 @@
               checkbox.
             </div>
 
-            <article class="form-field-card" *ngFor="let field of taskFormFields(taskNode); let i = index"
+            <article class="form-field-card" *ngFor="let field of taskFormFields(taskNode); let i = index; trackBy: trackByFieldId"
               [class.selected]="selectedFormFieldId() === field.id"
               (click)="selectedFormFieldId() === field.id ? selectTaskFormRoot() : selectTaskFormField(field.id)"
               [title]="selectedFormFieldId() === field.id ? 'Clic para deseleccionar y volver a configuración general' : 'Clic para configurar este campo'">
@@ -276,12 +276,18 @@
                     *ngIf="field.usedForDecision"> •
                     Usado por decisión</span></p>
 
-                <!-- WYSIWYG Editor for TABLE -->
+                <div class="checklist-preview" *ngIf="field.type === 'CHECKLIST'">
+                  <label *ngFor="let option of field.options || []; let o = index" class="checklist-preview-item">
+                    <input type="checkbox" disabled />
+                    <span>{{ option }}</span>
+                  </label>
+                </div>
+
                 <div class="table-wysiwyg-preview" style="overflow-x: auto; margin-top: 15px; margin-bottom: 5px;" *ngIf="field.type === 'TABLE'">
                   <table class="data-table" (click)="$event.stopPropagation()">
                     <thead>
                       <tr>
-                        <th><input type="text" class="header-input" disabled value="#" style="width: 40px; text-align: center; cursor: not-allowed;" /></th>
+                        <th><input type="text" class="header-input" disabled value="Fila" style="width: 54px; text-align: center; cursor: not-allowed;" /></th>
                         <th *ngFor="let col of (field.tableColumns || ['', '']); let c = index; trackBy: trackByIndex">
                           <input type="text" class="header-input" [ngModel]="col" (ngModelChange)="updateTableColumnName(field, c, $event)" [readOnly]="editingBlocked()" placeholder="Columna {{c+1}}" />
                         </th>
@@ -298,6 +304,7 @@
                       </tr>
                     </tbody>
                   </table>
+                  <small class="muted">{{ tableDimensionsSummary(field) }} · Se serializa como una lista de filas con claves de columna.</small>
                 </div>
 
               </div>
@@ -423,9 +430,24 @@
 
             <ng-container *ngIf="field.type === 'TABLE'">
               <div class="table-dimensions">
-                <label>Columnas: <input type="number" class="config-input-inline" [ngModel]="(field.tableColumns?.length || 2)" #colsInput (change)="initializeTableDimensions(field, rowsInput.valueAsNumber || (field.matrixRows?.length || 2), colsInput.valueAsNumber || (field.tableColumns?.length || 2))" [readOnly]="editingBlocked()" min="1" max="10"/></label>
-                <label>Filas: <input type="number" class="config-input-inline" [ngModel]="(field.matrixRows?.length || 2)" #rowsInput (change)="initializeTableDimensions(field, rowsInput.valueAsNumber || (field.matrixRows?.length || 2), colsInput.valueAsNumber || (field.tableColumns?.length || 2))" [readOnly]="editingBlocked()" min="1" max="20"/></label>
+                <div class="table-stepper-row">
+                  <span>Columnas</span>
+                  <div class="table-stepper">
+                    <button type="button" class="table-stepper-btn" [disabled]="editingBlocked() || (field.tableColumns?.length || 2) <= 1" (click)="changeTableColumnCount(field, -1)" aria-label="Disminuir columnas">−</button>
+                    <input type="text" class="config-input-inline table-stepper-value" [value]="field.tableColumns?.length || 2" readonly />
+                    <button type="button" class="table-stepper-btn" [disabled]="editingBlocked() || (field.tableColumns?.length || 2) >= 10" (click)="changeTableColumnCount(field, 1)" aria-label="Aumentar columnas">+</button>
+                  </div>
+                </div>
+                <div class="table-stepper-row">
+                  <span>Filas</span>
+                  <div class="table-stepper">
+                    <button type="button" class="table-stepper-btn" [disabled]="editingBlocked() || (field.matrixRows?.length || 2) <= 1" (click)="changeTableRowCount(field, -1)" aria-label="Disminuir filas">−</button>
+                    <input type="text" class="config-input-inline table-stepper-value" [value]="field.matrixRows?.length || 2" readonly />
+                    <button type="button" class="table-stepper-btn" [disabled]="editingBlocked() || (field.matrixRows?.length || 2) >= 20" (click)="changeTableRowCount(field, 1)" aria-label="Aumentar filas">+</button>
+                  </div>
+                </div>
               </div>
+              <small class="muted">{{ tableDimensionsSummary(field) }} · La tabla se guarda como JSON de filas y columnas, sin cambiar el esquema del backend.</small>
             </ng-container>
           </ng-container>
 
@@ -465,9 +487,6 @@
               <option value="HIGH">Alta</option>
               <option value="URGENT">Urgente</option>
             </select>
-            <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.requiresSignature || false"
-                (ngModelChange)="updateTaskNodeConfig({ requiresSignature: $event })" [disabled]="editingBlocked()" />
-              Solicitar firma touch al cliente</label>
             <label class="config-check"><input type="checkbox" [ngModel]="taskNode.config?.allowsDocuments || false"
                 (ngModelChange)="updateTaskNodeConfig({ allowsDocuments: $event })" [disabled]="editingBlocked()" />
               Permite adjuntar documentos</label>

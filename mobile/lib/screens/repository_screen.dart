@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -23,6 +24,7 @@ class _RepositoryScreenState extends State<RepositoryScreen> {
   bool _loading = true;
   String? _error;
   List<ProcedureRepositoryDocument> _documents = [];
+  String? _updatingDocumentId;
 
   ApiService get _api => widget.apiService ?? ApiService();
 
@@ -47,10 +49,94 @@ class _RepositoryScreenState extends State<RepositoryScreen> {
     final documents = await _api.getProcedureDocuments(token, widget.procedure.id);
     if (!mounted) return;
     setState(() {
-      _documents = documents;
+      _documents = _clientDocumentsOnly(documents);
       _loading = false;
       _error = null;
     });
+  }
+
+  bool _canReplaceDocument(ProcedureRepositoryDocument document) {
+    return _isClientOwnedDocument(document);
+  }
+
+  List<ProcedureRepositoryDocument> _clientDocumentsOnly(List<ProcedureRepositoryDocument> documents) {
+    return documents.where(_isClientOwnedDocument).toList();
+  }
+
+  bool _isClientOwnedDocument(ProcedureRepositoryDocument document) {
+    final clientCi = _normalizedIdentity(widget.procedure.clientCi);
+    if (clientCi == null) {
+      return false;
+    }
+
+    final traceAction = document.traceAction?.trim().toUpperCase();
+    final createdBy = _normalizedIdentity(document.createdBy);
+    if (createdBy != clientCi) {
+      return false;
+    }
+
+    return traceAction == 'TASK_EVIDENCE' || traceAction == 'UPLOAD' || traceAction == 'NEW_VERSION' || traceAction == null || traceAction.isEmpty;
+  }
+
+  String? _normalizedIdentity(String? value) {
+    final normalized = value?.trim().toLowerCase();
+    return normalized == null || normalized.isEmpty ? null : normalized;
+  }
+
+  Future<void> _replaceDocument(ProcedureRepositoryDocument document) async {
+    final picked = await FilePicker.platform.pickFiles(withData: true);
+    if (picked == null || picked.files.isEmpty) {
+      return;
+    }
+
+    final file = picked.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se encontró la sesión para subir la nueva versión.')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _updatingDocumentId = document.documentId);
+
+    final response = await _api.uploadProcedureDocument(
+      token: token,
+      procedureId: widget.procedure.id,
+      fileName: file.name,
+      bytes: bytes,
+      documentId: document.documentId,
+    );
+
+    if (!mounted) return;
+    setState(() => _updatingDocumentId = null);
+
+    if (response['success'] == false) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(response['message']?.toString() ?? 'No se pudo subir la nueva versión.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    await _loadDocuments();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Nueva versión cargada correctamente.'),
+        backgroundColor: Color(0xFF166534),
+      ),
+    );
   }
 
   @override
@@ -150,6 +236,23 @@ class _RepositoryScreenState extends State<RepositoryScreen> {
               ),
             ],
           ),
+          if (_canReplaceDocument(document)) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: _updatingDocumentId == document.documentId ? null : () => _replaceDocument(document),
+                icon: _updatingDocumentId == document.documentId
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.upload_file),
+                label: Text(_updatingDocumentId == document.documentId ? 'Subiendo...' : 'Cambiar archivo'),
+              ),
+            ),
+          ],
         ],
       ),
     );

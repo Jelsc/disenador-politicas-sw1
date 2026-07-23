@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from binascii import Error as BinasciiError
+import logging
 from copy import deepcopy
 from collections import Counter, defaultdict, deque
 import json
@@ -15,17 +16,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from app.ai_runtime import AzureOpenAIClient, get_ai_runtime
+from app.ai_runtime import AzureOpenAIClient, OllamaClient, get_ai_runtime
 from app.tensorflow_core import get_tensorflow_core
 
 
 app = FastAPI(title="Policy Design AI Service", version="1.1.0")
+logger = logging.getLogger(__name__)
 
 LEARNING_STORE: dict[str, list[dict[str, Any]]] = defaultdict(list)
 AI_PROVIDER = os.getenv("AI_PROVIDER", "heuristic").strip().lower()
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct")
-OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "45"))
+OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "300"))
+OLLAMA_WARMUP_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_WARMUP_TIMEOUT_SECONDS", "15"))
 AI_NEURAL_MAX_RULE_NODES = int(os.getenv("AI_NEURAL_MAX_RULE_NODES", "80"))
 
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
@@ -40,6 +43,18 @@ def _get_azure_client() -> AzureOpenAIClient | None:
             api_key=AZURE_OPENAI_KEY,
         )
     return _AZURE_CLIENT
+
+
+def warmup_ollama() -> None:
+    try:
+        OllamaClient(timeout_seconds=OLLAMA_WARMUP_TIMEOUT_SECONDS).warmup()
+    except Exception as exc:
+        logger.warning("Ollama warmup skipped: %s", exc)
+
+
+@app.on_event("startup")
+def _warmup_ollama_on_startup() -> None:
+    warmup_ollama()
 
 GENERIC_MATCH_TOKENS = {
     "flujo", "flujos", "tarea", "tareas", "paso", "pasos", "revision", "revisiones",
@@ -101,7 +116,7 @@ class AssistantResponse(BaseModel):
     answer: str
     recommendations: list[str] = Field(default_factory=list)
     suggestedRules: dict[str, Any] | None = None
-    modelSource: Literal["ollama", "heuristic"] = "ollama"
+    modelSource: Literal["ollama", "heuristic", "tensorflow", "azure"] = "ollama"
 
 
 class ExecutionLearningEvent(BaseModel):
@@ -168,7 +183,8 @@ class ReportDraftResponse(BaseModel):
     missingFields: list[str] = Field(default_factory=list)
     clarification: str | None = None
     confidence: float
-    modelSource: Literal["tensorflow", "ollama"]
+    recommendations: list[str] = Field(default_factory=list)
+    modelSource: Literal["tensorflow", "ollama", "heuristic"]
     reportType: str | None = None
 
 
@@ -381,15 +397,18 @@ def assistant_response_from_runtime(result: Any, request: AssistantRequest) -> A
         clean_recommendations = []
 
     model_source = result.get("modelSource")
-    if model_source not in {"ollama", "heuristic"}:
-        model_source = "ollama"
+    if model_source not in {"ollama", "heuristic", "tensorflow", "azure"}:
+        model_source = "heuristic"
 
     suggested_rules = sanitize_suggested_rules(result.get("suggestedRules"), request.policyName, request.rules)
-    
-    # If Ollama completely failed to generate the structure (empty board) but the user asked for one, trigger heuristic fallback
-    if wants_flow_generation(request.prompt) and (not suggested_rules or not suggested_rules.get("nodes")):
-        # By returning None here, it forces the caller to use assistant_fallback_response which now contains the from-scratch heuristic
+
+    if wants_flow_generation(request.prompt) and not suggested_rules_changed(suggested_rules, request.rules):
         return None
+
+    if assistant_answer_needs_rewrite(answer):
+        answer = build_generic_assistant_answer(request, suggested_rules)
+    else:
+        answer = sanitize_assistant_answer(answer)
 
     # FORCE correct Y coordinates for all nodes based on their assigned department lane
     if suggested_rules and suggested_rules.get("nodes"):
@@ -557,6 +576,65 @@ def sanitize_suggested_rules(candidate: Any, policy_name: str | None, original_r
     # The frontend is responsible for validating the rules and showing explicit error messages to the user.
     # If we return None here, the frontend thinks the AI omitted the structure.
     return normalized_candidate
+
+
+def rules_signature(rules: dict[str, Any] | None) -> str:
+    if not isinstance(rules, dict):
+        return ""
+    normalized = {
+        "version": rules.get("version", 1),
+        "departments": list(rules.get("departments") or []),
+        "laneHeights": dict(rules.get("laneHeights") or {}),
+        "nodes": list(rules.get("nodes") or []),
+        "connectors": list(rules.get("connectors") or []),
+    }
+    return json.dumps(normalized, ensure_ascii=False, sort_keys=True)
+
+
+def suggested_rules_changed(candidate: dict[str, Any] | None, original_rules: dict[str, Any] | None) -> bool:
+    if not isinstance(candidate, dict):
+        return False
+    return rules_signature(candidate) != rules_signature(original_rules)
+
+
+_ASSISTANT_PROVIDER_PATTERN = re.compile(r"\b(?:TensorFlow|Ollama|Azure|OpenAI)\b", re.IGNORECASE)
+_ASSISTANT_STALE_MARKERS = (
+    "propuse un flujo local",
+    "modelo local listo",
+    "flujo local con",
+    "sin depender de",
+    "integration path",
+    "produced through the tensorflow integration path",
+)
+
+
+def sanitize_assistant_answer(answer: str) -> str:
+    cleaned = _ASSISTANT_PROVIDER_PATTERN.sub("", answer)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    return cleaned.strip()
+
+
+def assistant_answer_needs_rewrite(answer: str) -> bool:
+    normalized = re.sub(r"\s+", " ", answer or "").strip().lower()
+    if not normalized:
+        return True
+    if _ASSISTANT_PROVIDER_PATTERN.search(answer):
+        return True
+    return any(marker in normalized for marker in _ASSISTANT_STALE_MARKERS)
+
+
+def build_generic_assistant_answer(request: AssistantRequest, suggested_rules: dict[str, Any] | None) -> str:
+    policy_name = str(request.policyName or "esta política").strip() or "esta política"
+    departments = len((suggested_rules or {}).get("departments") or [])
+    nodes = len((suggested_rules or {}).get("nodes") or [])
+    connectors = len((suggested_rules or {}).get("connectors") or [])
+
+    if nodes:
+        return f"Te dejé una propuesta actualizada para {policy_name} con {departments} departamentos, {nodes} nodos y {connectors} conectores, lista para revisar y aplicar."
+    if departments:
+        return f"Te dejé una base editable para {policy_name} con {departments} departamentos cargados, lista para seguir armando el flujo."
+    return f"Analicé la solicitud para {policy_name} y dejé una respuesta limpia para seguir ajustando el flujo."
 
 
 def parse_llm_json(content: str) -> dict[str, Any]:
@@ -978,7 +1056,7 @@ def local_prompt_recommendations(prompt: str, rules: dict[str, Any]) -> list[str
 
 def wants_flow_generation(prompt: str) -> bool:
     prompt = normalize_text(prompt)
-    generation_words = ["gener", "crear", "crea", "arma", "armar", "diagrama", "flujo", "realiza", "realiz", "hacer", "hace", "formulario", "captura"]
+    generation_words = ["gener", "crear", "crea", "arma", "armar", "diagrama", "flujo", "realiza", "realiz", "hacer", "hace", "formulario", "captura", "add", "include", "insert", "inserta", "append", "agreg", "añad", "anad", "approval", "approve", "after", "before", "step", "task"]
     return any(word in prompt for word in generation_words)
 
 
@@ -1064,6 +1142,12 @@ def collaborate_existing_flow(request: AssistantRequest, prompt: str, simulation
         changed = bool(added_department) or changed
         recommendations.insert(0, f"Agregué una tarea de revisión en {added_department}, conectada y reacomodada dentro del flujo actual.") if added_department else None
 
+    if not changed:
+        board_change = append_prompt_driven_flow_changes(proposed, request, prompt)
+        changed = bool(board_change) or changed
+        if board_change:
+            recommendations.insert(0, board_change)
+
     answer = (
         f"Revisé el flujo actual: estado {simulation.status}. "
         f"Encontré {len(simulation.errors)} errores, {len(simulation.warnings)} advertencias y {len(simulation.bottlenecks)} posibles cuellos de botella."
@@ -1078,6 +1162,101 @@ def collaborate_existing_flow(request: AssistantRequest, prompt: str, simulation
         recommendations=list(dict.fromkeys(recommendations))[:8],
         suggestedRules=proposed if changed else None,
     )
+
+
+def append_prompt_driven_flow_changes(rules: dict[str, Any], request: AssistantRequest, prompt: str) -> str | None:
+    normalized_prompt = normalize_text(prompt)
+    add_words = any(word in normalized_prompt for word in ["add", "include", "insert", "append", "incorp", "agreg", "añad", "anad", "sum"])
+    approval_words = any(word in normalized_prompt for word in ["approval", "approve", "aprob", "valid", "authorize", "autoriza", "cierra"])
+    legal_info_words = any(word in normalized_prompt for word in ["legal info", "info legal", "informacion legal", "información legal"])
+    if not (add_words or approval_words or legal_info_words):
+        return None
+
+    nodes = rules.setdefault("nodes", [])
+    connectors = rules.setdefault("connectors", [])
+    end_node = next((node for node in reversed(nodes) if node.get("type") == "END"), None)
+    anchor = next((node for node in reversed(nodes) if node.get("type") == "TASK"), None) or next((node for node in reversed(nodes) if node.get("type") == "START"), None)
+    if not end_node or not anchor:
+        return None
+
+    requested_departments = requested_departments_for_prompt({"availableDepartments": list((request.availableDepartments or [])) + list((rules.get("departments") or []))}, prompt)
+    if requested_departments:
+        for department in requested_departments:
+            ensure_department_in_rules(rules, department)
+
+    for connector in list(connectors):
+        if connector.get("sourceId") == anchor.get("id") and connector.get("targetId") == end_node.get("id"):
+            connectors.remove(connector)
+
+    previous_id = str(anchor.get("id"))
+    previous_x = int(anchor.get("x") or 0)
+    created_labels: list[str] = []
+
+    if add_words and requested_departments:
+        for index, department in enumerate(requested_departments, start=1):
+            department_id = str(department.get("id") or department.get("name") or f"dept-{index}")
+            if any(node.get("type") == "TASK" and node.get("departmentId") == department_id for node in nodes):
+                continue
+            node_id = unique_id(nodes, f"task_ia_{normalize_text(str(department.get('name') or department_id)).replace(' ', '_')}")
+            task_name = str(department.get("name") or department_id).strip() or f"Departamento {index}"
+            task_type = "APPROVAL" if approval_words and index == len(requested_departments) else "REVISION"
+            task_label = f"{task_type_label(task_type)} {task_name}".strip()
+            nodes.append({
+                "id": node_id,
+                "type": "TASK",
+                "departmentId": department_id,
+                "label": task_label,
+                "x": previous_x + (index * 220),
+                "y": lane_y_for_department(rules, department_id),
+                "config": task_config(request.policyName or "la política", task_type),
+            })
+            connectors.append({"id": unique_id(connectors, f"c_{previous_id}_{node_id}"), "sourceId": previous_id, "targetId": node_id, "type": "CONTROL_FLOW"})
+            previous_id = node_id
+            previous_x += 220
+            created_labels.append(task_label)
+
+    if approval_words and not any((node.get("config") or {}).get("taskType") == "APPROVAL" for node in nodes if node.get("type") == "TASK"):
+        department = department_by_id(rules, str(anchor.get("departmentId") or "")) or (requested_departments[0] if requested_departments else {"id": anchor.get("departmentId") or "general", "name": "General"})
+        department_id = str(department.get("id") or department.get("name") or "general")
+        node_id = unique_id(nodes, "task_ia_aprobacion")
+        task_label = f"Aprobación {str(department.get('name') or department_id).strip() or 'final'}"
+        nodes.append({
+            "id": node_id,
+            "type": "TASK",
+            "departmentId": department_id,
+            "label": task_label,
+            "x": previous_x + 220,
+            "y": lane_y_for_department(rules, department_id),
+            "config": task_config(request.policyName or "la política", "APPROVAL"),
+        })
+        connectors.append({"id": unique_id(connectors, f"c_{previous_id}_{node_id}"), "sourceId": previous_id, "targetId": node_id, "type": "CONTROL_FLOW"})
+        previous_id = node_id
+        previous_x += 220
+        created_labels.append(task_label)
+
+    if legal_info_words:
+        legal_department = next((department for department in requested_departments if "legal" in normalize_text(str(department.get("name") or department.get("id") or ""))), None)
+        department = legal_department or department_by_id(rules, str(anchor.get("departmentId") or "")) or (requested_departments[0] if requested_departments else {"id": anchor.get("departmentId") or "general", "name": "General"})
+        department_id = str(department.get("id") or department.get("name") or "general")
+        node_id = unique_id(nodes, "task_ia_info_legal")
+        task_label = f"Información legal {str(department.get('name') or department_id).strip() or 'final'}"
+        nodes.append({
+            "id": node_id,
+            "type": "TASK",
+            "departmentId": department_id,
+            "label": task_label,
+            "x": previous_x + 220,
+            "y": lane_y_for_department(rules, department_id),
+            "config": task_config(request.policyName or "la política", "REVISION"),
+        })
+        connectors.append({"id": unique_id(connectors, f"c_{previous_id}_{node_id}"), "sourceId": previous_id, "targetId": node_id, "type": "CONTROL_FLOW"})
+        previous_id = node_id
+        created_labels.append(task_label)
+
+    connectors.append({"id": unique_id(connectors, f"c_{previous_id}_{end_node['id']}"), "sourceId": previous_id, "targetId": end_node["id"], "type": "CONTROL_FLOW"})
+    if created_labels:
+        return f"Ajusté la pizarra con una nueva secuencia aplicada sobre el flujo actual: {', '.join(created_labels)}."
+    return "Ajusté la pizarra para que el cambio pedido quede reflejado en el flujo actual."
 
 
 def prompt_with_correction_context(prompt: str, history: list[dict[str, str]]) -> str:

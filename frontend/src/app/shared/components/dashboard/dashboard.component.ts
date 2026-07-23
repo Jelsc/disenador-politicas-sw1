@@ -1,8 +1,10 @@
-import { Component, OnInit, signal, computed } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { Router, RouterModule } from '@angular/router';
+import { CommonModule, Location } from '@angular/common';
+import { Component, OnDestroy, OnInit, signal, computed, inject } from '@angular/core';
+import { NavigationEnd, Router, RouterModule } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { AuthService } from '../../../core/services/auth.service';
 import { NgIconComponent } from '@ng-icons/core';
+import { OnlyOfficeEditorHeaderService } from '../../../policies/services/onlyoffice-editor-header.service';
 
 interface SubMenu {
   label: string;
@@ -88,21 +90,51 @@ interface MenuModule {
         </div>
       </aside>
 
-      <main class="main-content">
+      <main class="main-content" [class.fullscreen-editor]="isOnlyOfficeEditorRoute()">
         <header class="top-header">
           <div class="header-title">
-            <h1>Dashboard</h1>
-          </div>
-          <div class="user-info">
-            <div class="avatar">{{ userRole().charAt(0) }}</div>
-            <div class="user-details">
-              <span class="user-name">Usuario Actual</span>
-              <span class="user-role-text">{{ userRole() }}</span>
-            </div>
+            <ng-container *ngIf="isOnlyOfficeEditorRoute(); else dashboardHeader">
+              <button type="button" class="editor-back-link" (click)="goBack()">
+                <ng-icon name="lucideArrowLeft" class="back-icon"></ng-icon>
+                Volver
+              </button>
+
+              <div class="editor-title-group">
+                <p class="eyebrow">OnlyOffice</p>
+                <h1>{{ onlyOfficeDocumentTitle() }}</h1>
+              </div>
+
+              <div class="editor-publish-controls">
+                <label class="version-field">
+                  <span>Versión</span>
+                  <input
+                    type="text"
+                    class="version-input"
+                    [value]="onlyOfficeVersionName()"
+                    (input)="setOnlyOfficeVersionName($any($event.target).value)"
+                    placeholder="Nombre de la versión"
+                    [disabled]="isOnlyOfficePublishing()"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  class="publish-button"
+                  (click)="requestOnlyOfficePublish()"
+                  [disabled]="isOnlyOfficePublishing() || !onlyOfficeVersionName().trim()"
+                >
+                  {{ isOnlyOfficePublishing() ? 'Publicando…' : 'Publicar versión' }}
+                </button>
+              </div>
+            </ng-container>
+
+            <ng-template #dashboardHeader>
+              <h1>Dashboard</h1>
+            </ng-template>
           </div>
         </header>
 
-        <div class="content-area">
+        <div class="content-area" [class.fullscreen-editor]="isOnlyOfficeEditorRoute()">
           <router-outlet></router-outlet>
         </div>
       </main>
@@ -373,13 +405,26 @@ interface MenuModule {
       overflow: hidden;
     }
 
+    .main-content.fullscreen-editor {
+      min-height: 0;
+    }
+
     .top-header {
       background: white;
       padding: 0 var(--spacing-xl);
       height: 64px;
       border-bottom: 1px solid var(--color-border);
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-start;
+      align-items: center;
+    }
+
+    .main-content.fullscreen-editor .top-header {
+      height: auto;
+      min-height: 64px;
+      padding-top: 10px;
+      padding-bottom: 10px;
+      gap: var(--spacing-lg);
       align-items: center;
     }
 
@@ -390,40 +435,121 @@ interface MenuModule {
       color: var(--color-text-main);
     }
 
-    .user-info {
+    .header-title {
       display: flex;
       align-items: center;
-      gap: var(--spacing-sm);
+      gap: 10px 12px;
+      min-width: 0;
+      flex: 1;
+      flex-wrap: wrap;
     }
 
-    .avatar {
-      width: 32px;
+    .editor-title-group {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .editor-title-group h1 {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 36vw;
+    }
+
+    .editor-publish-controls {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .version-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 220px;
+    }
+
+    .version-field span {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .version-input {
       height: 32px;
-      border-radius: 50%;
-      background-color: var(--color-primary-soft);
-      color: var(--color-primary-hover);
+      padding: 0 12px;
+      border-radius: 10px;
+      border: 1px solid var(--color-border);
+      background: var(--color-bg-panel);
+      color: var(--color-text-main);
+      min-width: 220px;
+      font-size: 13px;
+    }
+
+    .version-input:focus {
+      outline: none;
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08);
+    }
+
+    .publish-button {
+      height: 32px;
+      padding: 0 14px;
+      border: 1px solid var(--color-primary);
+      border-radius: 10px;
+      background: var(--color-primary);
+      color: white;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .publish-button:hover:not(:disabled) {
+      background: var(--color-primary-hover);
+      border-color: var(--color-primary-hover);
+    }
+
+    .publish-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.72;
+    }
+
+    .eyebrow {
+      margin: 0 0 2px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--color-text-dim);
+    }
+
+    .editor-back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--color-border);
+      background: transparent;
+      color: var(--color-text-main);
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .back-icon {
+      font-size: 16px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: 600;
-      font-size: 14px;
-    }
-
-    .user-details {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .user-name {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--color-text-main);
-    }
-
-    .user-role-text {
-      font-size: 11px;
-      color: var(--color-text-muted);
-      text-transform: capitalize;
     }
 
     .content-area {
@@ -431,11 +557,35 @@ interface MenuModule {
       overflow-y: auto;
       flex: 1;
     }
+
+    .content-area.fullscreen-editor {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .content-area.fullscreen-editor > * {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
   `]
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
+  private readonly sidebarCollapsedStorageKey = 'dashboard.sidebarCollapsed';
+
   userRole = signal<string>('OPERATOR');
   sidebarCollapsed = signal(false);
+  isOnlyOfficeEditorRoute = signal(false);
+
+  private routerEventsSubscription?: Subscription;
+
+  private readonly onlyOfficeEditorHeaderService = inject(OnlyOfficeEditorHeaderService);
+
+  readonly onlyOfficeDocumentTitle = computed(() => this.onlyOfficeEditorHeaderService.title() || 'Documento');
+  readonly onlyOfficeVersionName = computed(() => this.onlyOfficeEditorHeaderService.versionName());
+  readonly isOnlyOfficePublishing = computed(() => this.onlyOfficeEditorHeaderService.publishing());
 
   private modules = signal<MenuModule[]>([
 
@@ -447,18 +597,18 @@ export class DashboardComponent implements OnInit {
       expanded: false,
       allowedRoles: ['ADMIN', 'DESIGNER', 'OPERATOR', 'AUDITOR']
     },
-{
-        id: 'admin',
-        label: 'Administración',
-        icon: 'lucideShield',
-        expanded: false,
-        allowedRoles: ['ADMIN'],
-        submodules: [
-          { label: 'Usuarios', path: '/users', icon: 'lucideUsers' },
-          { label: 'Clientes', path: '/clients', icon: 'lucideUserCircle' },
-          { label: 'Departamentos', path: '/departments', icon: 'lucideBuilding2' }
-        ]
-      },
+    {
+      id: 'admin',
+      label: 'Administración',
+      icon: 'lucideShield',
+      expanded: false,
+      allowedRoles: ['ADMIN'],
+      submodules: [
+        { label: 'Usuarios', path: '/users', icon: 'lucideUsers' },
+        { label: 'Clientes', path: '/clients', icon: 'lucideUserCircle' },
+        { label: 'Departamentos', path: '/departments', icon: 'lucideBuilding2' }
+      ]
+    },
     {
       id: 'management',
       label: 'Gestión',
@@ -507,15 +657,30 @@ export class DashboardComponent implements OnInit {
 
   constructor(
     private authService: AuthService,
-    public router: Router
-  ) { }
+    public router: Router,
+    private location: Location
+  ) {
+    this.isOnlyOfficeEditorRoute.set(this.isOnlyOfficeEditorUrl(this.router.url));
+  }
 
   ngOnInit(): void {
+    this.restoreSidebarCollapsedState();
+
     this.authService.getUserRole$().subscribe(role => {
       if (role) {
         this.userRole.set(role);
       }
     });
+
+    this.routerEventsSubscription = this.router.events.subscribe(event => {
+      if (event instanceof NavigationEnd) {
+        this.isOnlyOfficeEditorRoute.set(this.isOnlyOfficeEditorUrl(event.urlAfterRedirects));
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.routerEventsSubscription?.unsubscribe();
   }
 
   toggleModule(id: string): void {
@@ -528,6 +693,7 @@ export class DashboardComponent implements OnInit {
   toggleSidebar(): void {
     const collapsing = !this.sidebarCollapsed();
     this.sidebarCollapsed.set(collapsing);
+    this.persistSidebarCollapsedState(collapsing);
     if (collapsing) {
       this.modules.update(mods => mods.map(m => ({ ...m, expanded: false })));
     }
@@ -536,5 +702,48 @@ export class DashboardComponent implements OnInit {
   logout(): void {
     this.authService.logout();
     this.router.navigate(['/login']);
+  }
+
+  goBack(): void {
+    this.location.back();
+  }
+
+  setOnlyOfficeVersionName(value: string): void {
+    this.onlyOfficeEditorHeaderService.setVersionName(value);
+  }
+
+  requestOnlyOfficePublish(): void {
+    this.onlyOfficeEditorHeaderService.requestPublish();
+  }
+
+  private isOnlyOfficeEditorUrl(url: string): boolean {
+    const path = url.split('?')[0].split('#')[0];
+    return path.startsWith('/documents/') && path.endsWith('/editor');
+  }
+
+  private restoreSidebarCollapsedState(): void {
+    const storedValue = this.readSidebarCollapsedState();
+    this.sidebarCollapsed.set(storedValue ?? false);
+  }
+
+  private readSidebarCollapsedState(): boolean | null {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return null;
+    }
+
+    const rawValue = window.localStorage.getItem(this.sidebarCollapsedStorageKey);
+    if (rawValue === null) {
+      return null;
+    }
+
+    return rawValue === 'true';
+  }
+
+  private persistSidebarCollapsedState(collapsed: boolean): void {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return;
+    }
+
+    window.localStorage.setItem(this.sidebarCollapsedStorageKey, String(collapsed));
   }
 }

@@ -59,8 +59,13 @@ services:
     environment:
       - AI_PROVIDER=${AI_PROVIDER:-ollama}
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
       - OLLAMA_TIMEOUT_SECONDS=${OLLAMA_TIMEOUT_SECONDS:-300}
+      - OLLAMA_TEMPERATURE=${OLLAMA_TEMPERATURE:-0.1}
+      - OLLAMA_NUM_CTX=${OLLAMA_NUM_CTX:-8192}
+      - OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-1536}
+      - OLLAMA_TOP_P=${OLLAMA_TOP_P:-0.9}
+      - OLLAMA_REPEAT_PENALTY=${OLLAMA_REPEAT_PENALTY:-1.1}
       - AI_CORE_MODEL_PATH=${AI_CORE_MODEL_PATH:-/app/models/ai-core.keras}
       - WHISPER_MODEL=${WHISPER_MODEL:-tiny}
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
@@ -78,6 +83,13 @@ services:
     restart: unless-stopped
     volumes:
       - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
 
   backend:
     build:
@@ -90,6 +102,12 @@ services:
       - SPRING_REDIS_PORT=6379
       - FILE_STORAGE_PATH=/app/uploads
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - APP_ONLYOFFICE_ENABLED=${APP_ONLYOFFICE_ENABLED:-true}
+      - APP_ONLYOFFICE_DOCUMENT_SERVER_URL=${APP_ONLYOFFICE_DOCUMENT_SERVER_URL:-http://localhost:8082}
+      - APP_ONLYOFFICE_INTERNAL_DOCUMENT_SERVER_URL=${APP_ONLYOFFICE_INTERNAL_DOCUMENT_SERVER_URL:-http://onlyoffice}
+      - APP_ONLYOFFICE_BACKEND_BASE_URL=${APP_ONLYOFFICE_BACKEND_BASE_URL:-http://backend:8080}
+      - APP_ONLYOFFICE_SHARED_SECRET=${APP_ONLYOFFICE_SHARED_SECRET:-onlyoffice-local-secret}
+      - APP_FRONTEND_BASE_URL=${APP_FRONTEND_BASE_URL:-http://localhost}
     volumes:
       - ./data/uploads:/app/uploads
     depends_on:
@@ -117,6 +135,22 @@ services:
     # Reemplazamos el env.template.js al vuelo antes de iniciar angular
     command: >
       /bin/sh -c " apk add --no-cache gettext &&  mkdir -p /app/public/assets && envsubst < /app/public/assets/env.template.js > /app/public/assets/env.js && npx ng serve --host 0.0.0.0 --poll 2000"
+
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: tuapp-onlyoffice
+    shm_size: 1g
+    ports:
+      - "8082:80"
+    environment:
+      - ALLOW_PRIVATE_IP_ADDRESS=true
+      - JWT_ENABLED=true
+      - JWT_SECRET=${APP_ONLYOFFICE_SHARED_SECRET:-onlyoffice-local-secret}
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
   mongodb_data:

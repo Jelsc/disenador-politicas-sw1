@@ -100,6 +100,7 @@ class ClientTaskField {
   final String label;
   final bool required;
   final String? placeholder;
+  final List<String>? options;
   final List<String>? tableColumns;
   final List<String>? matrixRows;
 
@@ -109,19 +110,34 @@ class ClientTaskField {
     required this.label,
     required this.required,
     this.placeholder,
+    this.options,
     this.tableColumns,
     this.matrixRows,
   });
 
   factory ClientTaskField.fromJson(Map<String, dynamic> json) {
+    List<String>? parseStringList(dynamic value) {
+      if (value is! List) {
+        return null;
+      }
+
+      final items = value
+          .map((item) => item?.toString().trim())
+          .whereType<String>()
+          .where((item) => item.isNotEmpty)
+          .toList();
+      return items.isEmpty ? null : items;
+    }
+
     return ClientTaskField(
       id: json['id'] ?? '',
       type: json['type'] ?? 'TEXT',
       label: json['label'] ?? '',
       required: json['required'] ?? false,
       placeholder: json['placeholder'],
-      tableColumns: json['tableColumns'] != null ? List<String>.from(json['tableColumns']) : null,
-      matrixRows: json['matrixRows'] != null ? List<String>.from(json['matrixRows']) : null,
+      options: parseStringList(json['options'] ?? json['choices']),
+      tableColumns: parseStringList(json['tableColumns']),
+      matrixRows: parseStringList(json['matrixRows']),
     );
   }
 }

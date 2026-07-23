@@ -139,6 +139,15 @@ describe('PolicyFormComponent', () => {
     expect(component.boardControlIcon('resize-region')).toBe('lucideMaximize2');
   });
 
+  it('exposes the checklist field type and clearer selector labels', () => {
+    expect(component.taskFormFieldTypes.some(item => item.type === 'CHECKLIST')).toBeTrue();
+    expect(component.formFieldLabel('SINGLE_CHOICE')).toBe('Selector único');
+    expect(component.formFieldLabel('MULTIPLE_CHOICE')).toBe('Selector múltiple');
+    expect(component.formFieldLabel('CHECKLIST')).toBe('Checklist');
+    expect(component.formFieldLabel('TABLE')).toBe('Tabla / grid');
+    expect(component.supportsOptions('CHECKLIST')).toBeTrue();
+  });
+
   it('switches the voice prompt icon with the listening state', () => {
     expect(component.voicePromptIcon()).toBe('lucideMic');
 
@@ -204,7 +213,20 @@ describe('PolicyFormComponent', () => {
     component.policyId.set('policy-1');
     component.openDocumentRepository();
     
-    expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/policies', 'policy-1', 'documents', 'config'], expect.anything());
+    expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/documents', 'policy-1', 'config'], {
+      queryParams: { from: 'edit', mode: 'edit' }
+    });
+  });
+
+  it('opens the document repository in read-only mode for published policies', () => {
+    component.policyId.set('policy-1');
+    component.publishedLocked.set(true);
+
+    component.openDocumentRepository();
+
+    expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/documents', 'policy-1', 'config'], {
+      queryParams: { from: 'view', mode: 'view' }
+    });
   });
 
   it('keeps repository navigation disabled until the policy has an id', () => {

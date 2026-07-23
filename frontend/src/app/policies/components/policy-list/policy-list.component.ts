@@ -393,7 +393,7 @@ export class PolicyListComponent implements OnInit {
   }
 
   openRepository(id?: string): void {
-    if(id) this.router.navigate(['/policies', id, 'documents']);
+    if(id) this.router.navigate(['/documents', id]);
   }
 
   editPolicy(id?: string): void {

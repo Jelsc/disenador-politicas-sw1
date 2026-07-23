@@ -8,6 +8,7 @@ import java.util.List;
 public interface ProcedureTaskMongoRepository extends MongoRepository<ProcedureTaskDocument, String> {
     List<ProcedureTaskDocument> findByDepartmentIdInAndStatusOrderByCreatedAtAsc(Collection<String> departmentIds, String status);
     List<ProcedureTaskDocument> findByAssignedToAndStatusOrderByAssignedAtAsc(String assignedTo, String status);
+    List<ProcedureTaskDocument> findByAssignedToOrderByCreatedAtDesc(String assignedTo);
     List<ProcedureTaskDocument> findByStatusOrderByCompletedAtDesc(String status);
     List<ProcedureTaskDocument> findByProcedureIdOrderByCreatedAtAsc(String procedureId);
     long countByDepartmentIdAndStatus(String departmentId, String status);

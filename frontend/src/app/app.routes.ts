@@ -46,28 +46,45 @@ export const routes: Routes = [
         canActivate: [roleGuard(['ADMIN', 'DESIGNER'])]
       },
       {
-        path: 'policies/:id/documents/config',
-        loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
-        canActivate: [roleGuard(['ADMIN', 'DESIGNER'])],
-        data: { repositoryScope: 'policy', viewMode: 'config' }
-      },
-      {
-        path: 'policies/:id/documents',
-        loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
-        canActivate: [roleGuard(['ADMIN', 'DESIGNER', 'OPERATOR'])],
-        data: { repositoryScope: 'policy', viewMode: 'policy-docs' }
-      },
-      {
-        path: 'tramites/:id/documents',
-        loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
-        canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
-        data: { repositoryScope: 'procedure', viewMode: 'procedure-docs' }
-      },
-      {
         path: 'documents',
         loadComponent: () => import('./policies/components/policy-list/policy-list.component').then(m => m.PolicyListComponent),
         canActivate: [roleGuard(['ADMIN', 'DESIGNER', 'OPERATOR'])],
         data: { launcher: 'document-repository' }
+      },
+      {
+        path: 'documents/:policyId/config',
+        loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
+        canActivate: [roleGuard(['ADMIN', 'DESIGNER'])],
+        data: { repositoryScope: 'policy', viewMode: 'config' },
+        pathMatch: 'full'
+      },
+      {
+        path: 'documents/:policyId',
+        loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
+        canActivate: [roleGuard(['ADMIN', 'DESIGNER', 'OPERATOR'])],
+        data: { repositoryScope: 'policy', viewMode: 'policy-docs' },
+        pathMatch: 'full'
+      },
+      {
+        path: 'documents/:policyId/:documentId/versions/:version/editor',
+        loadComponent: () => import('./policies/components/document-onlyoffice-editor/document-onlyoffice-editor.component').then(m => m.DocumentOnlyofficeEditorComponent),
+        canActivate: [roleGuard(['ADMIN', 'DESIGNER', 'OPERATOR'])]
+      },
+      {
+        path: 'policies/:id/documents/config',
+        redirectTo: 'documents/:id/config',
+        pathMatch: 'full'
+      },
+      {
+        path: 'policies/:id/documents',
+        redirectTo: 'documents/:id',
+        pathMatch: 'full'
+      },
+      {
+        path: 'tramites/:id/documents',
+        loadComponent: () => import('./policies/components/document-repository/document-repository.component').then(m => m.DocumentRepositoryComponent),
+        canActivate: [authGuard],
+        data: { repositoryScope: 'procedure', viewMode: 'procedure-docs' }
       },
       { 
         path: 'policies/new', 
@@ -88,8 +105,13 @@ export const routes: Routes = [
       {
         path: 'tramites',
         loadComponent: () => import('./execution/components/procedure-simulator/procedure-simulator.component').then(m => m.ProcedureSimulatorComponent),
-        canActivate: [roleGuard(['ADMIN', 'OPERATOR'])],
+        canActivate: [authGuard],
         data: { operationView: 'procedures' }
+      },
+      {
+        path: 'tramites/:id/process',
+        loadComponent: () => import('./execution/components/procedure-process-page/procedure-process-page.component').then(m => m.ProcedureProcessPageComponent),
+        canActivate: [authGuard]
       },
       {
         path: 'tasks',

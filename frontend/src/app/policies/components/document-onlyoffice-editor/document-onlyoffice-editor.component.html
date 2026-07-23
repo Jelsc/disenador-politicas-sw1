@@ -1,0 +1,10 @@
+<div class="editor-shell">
+  <div class="editor-status" *ngIf="loading() || errorMessage()">
+    <span *ngIf="loading()">Cargando editor...</span>
+    <span *ngIf="errorMessage()" class="error-text">{{ errorMessage() }}</span>
+  </div>
+
+  <section class="editor-canvas" [class.is-loading]="loading() || !!errorMessage()">
+    <div id="onlyoffice-editor" class="editor-host"></div>
+  </section>
+</div>

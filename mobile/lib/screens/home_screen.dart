@@ -358,7 +358,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildProcedureCard(ProcedureTicket procedure) {
-    final hasSignature = procedure.pendingSignatureRequests.isNotEmpty;
     return Card(
       key: Key('procedure-card-${procedure.id}'),
       elevation: 0,
@@ -397,11 +396,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   value: procedure.progressPercentage / 100,
                   minHeight: 9,
                   backgroundColor: const Color(0xFFE9DEC9),
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    hasSignature
-                        ? const Color(0xFFB45309)
-                        : const Color(0xFF6D5A3D),
-                  ),
+                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6D5A3D)),
                 ),
               ),
               const SizedBox(height: 10),
@@ -409,18 +404,6 @@ class _HomeScreenState extends State<HomeScreen> {
               if (procedure.currentTasks.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text('Ahora: ${procedure.currentTasks.join(', ')}'),
-              ],
-              if (hasSignature) ...[
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: () => _openProcedure(
-                    procedure.id,
-                    taskId: procedure.pendingSignatureRequests.first.taskId,
-                    fieldId: procedure.pendingSignatureRequests.first.fieldId,
-                  ),
-                  icon: const Icon(Icons.draw_outlined),
-                  label: const Text('Firmar pendiente'),
-                ),
               ],
               const SizedBox(height: 8),
               Text(

@@ -7,7 +7,7 @@ import '../models/procedure_ticket.dart';
 class ApiService {
   // Elegí MANUALMENTE la URL que quieras usar.
   // LOCAL Android emulator (através de Nginx en puerto 80):
-  //static const String baseUrl = 'http://192.168.0.3/api';
+  //static const String baseUrl = 'http://192.168.0.6/api';
 
   // NUBE / PRODUCCIÓN:
   static const String baseUrl = 'https://api-primerpacialsw.duckdns.org/api';
@@ -400,7 +400,7 @@ class ApiService {
     }
   }
 
-  Future<bool> uploadProcedureDocument({
+  Future<Map<String, dynamic>> uploadProcedureDocument({
     required String token,
     required String procedureId,
     required String fileName,
@@ -421,9 +421,23 @@ class ApiService {
       );
 
       final response = await request.send();
-      return response.statusCode >= 200 && response.statusCode < 300;
+      final body = await response.stream.bytesToString();
+      final decoded = body.isNotEmpty ? json.decode(body) : <String, dynamic>{};
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return decoded is Map<String, dynamic>
+            ? decoded
+            : <String, dynamic>{'success': true, 'data': decoded};
+      }
+
+      return {
+        'success': false,
+        'message': decoded is Map && decoded['message'] != null
+            ? decoded['message'].toString()
+            : 'Error al subir el documento',
+      };
     } catch (e) {
-      return false;
+      return {'success': false, 'message': 'Error de conexión: $e'};
     }
   }
 
@@ -439,7 +453,7 @@ class ApiService {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
-        body: json.encode({'formValues': formValues}),
+        body: json.encode({'values': formValues}),
       );
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
@@ -447,7 +461,7 @@ class ApiService {
     }
   }
 
-  Future<bool> uploadTaskDocument({
+  Future<Map<String, dynamic>> uploadTaskDocument({
     required String token,
     required String procedureId,
     required String taskId,
@@ -467,9 +481,23 @@ class ApiService {
         http.MultipartFile.fromBytes('file', bytes, filename: fileName),
       );
       final response = await request.send();
-      return response.statusCode == 200 || response.statusCode == 201;
+      final body = await response.stream.bytesToString();
+      final decoded = body.isNotEmpty ? json.decode(body) : <String, dynamic>{};
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return decoded is Map<String, dynamic>
+            ? decoded
+            : <String, dynamic>{'success': true, 'data': decoded};
+      }
+
+      return {
+        'success': false,
+        'message': decoded is Map && decoded['message'] != null
+            ? decoded['message'].toString()
+            : 'Error al subir el archivo',
+      };
     } catch (e) {
-      return false;
+      return {'success': false, 'message': 'Error de conexión: $e'};
     }
   }
 }

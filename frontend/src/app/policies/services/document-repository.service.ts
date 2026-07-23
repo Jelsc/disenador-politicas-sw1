@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import { DocumentPresenceParticipant } from './document-collaboration.service';
 
 export interface DocumentRepositorySettings {
   procedureId: string;
@@ -27,6 +28,7 @@ export interface DocumentRepositoryVersion {
   policyId: string;
   documentId: string;
   version: number;
+  versionName?: string | null;
   originalFileName: string;
   storageKey: string;
   contentType: string | null;
@@ -36,6 +38,25 @@ export interface DocumentRepositoryVersion {
   traceNote: string;
   createdAt: string;
   downloadUri?: string;
+  onlyOfficeSupported?: boolean;
+  onlyOfficeEditorUrl?: string | null;
+  activeEditors?: DocumentPresenceParticipant[];
+}
+
+export interface DocumentRepositoryUser {
+  id?: string | null;
+  username: string;
+  name?: string | null;
+  email?: string | null;
+}
+
+export interface OnlyOfficeEditorConfigResponse {
+  documentServerUrl: string;
+  config: Record<string, unknown>;
+}
+
+export interface DocumentVersionPublishRequest {
+  versionName: string;
 }
 
 @Injectable({
@@ -76,7 +97,45 @@ export class DocumentRepositoryService {
     return `${this.apiUrl}/${procedureId}/documents/${documentId}/versions/${version}`;
   }
 
+  downloadDocumentBlob(procedureId: string, documentId: string, version: number): Observable<Blob> {
+    return this.http.get(`${this.apiUrl}/${procedureId}/documents/${documentId}/versions/${version}`, {
+      responseType: 'blob'
+    });
+  }
+
   deleteVersion(procedureId: string, documentId: string, version: number): Observable<void> {
     return this.http.delete<void>(`${this.apiUrl}/${procedureId}/documents/${documentId}/versions/${version}`);
+  }
+
+  publishVersion(procedureId: string, documentId: string, version: number, versionName: string): Observable<DocumentRepositoryVersion> {
+    return this.http.post<DocumentRepositoryVersion>(`${this.apiUrl}/${procedureId}/documents/${documentId}/versions/${version}/publish`, {
+      versionName
+    } as DocumentVersionPublishRequest);
+  }
+
+  getOnlyOfficeEditorConfig(procedureId: string, documentId: string, version: number): Observable<OnlyOfficeEditorConfigResponse> {
+    return this.http.get<OnlyOfficeEditorConfigResponse>(`${this.apiUrl}/${procedureId}/documents/${documentId}/versions/${version}/onlyoffice-config`);
+  }
+
+  listInvitedUsers(procedureId: string): Observable<DocumentRepositoryUser[]> {
+    return this.http.get<DocumentRepositoryUser[]>(`${this.apiUrl}/${procedureId}/documents/invites`);
+  }
+
+  listProcedureParticipants(procedureId: string): Observable<DocumentRepositoryUser[]> {
+    return this.http.get<DocumentRepositoryUser[]>(`${this.apiUrl}/${procedureId}/documents/participants`);
+  }
+
+  searchInvitableUsers(procedureId: string, query: string, limit = 8): Observable<DocumentRepositoryUser[]> {
+    return this.http.get<DocumentRepositoryUser[]>(`${this.apiUrl}/${procedureId}/documents/invites/search`, {
+      params: { q: query, limit }
+    });
+  }
+
+  inviteUser(procedureId: string, username: string): Observable<DocumentRepositoryUser[]> {
+    return this.http.post<DocumentRepositoryUser[]>(`${this.apiUrl}/${procedureId}/documents/invites`, { username });
+  }
+
+  revokeUser(procedureId: string, username: string): Observable<DocumentRepositoryUser[]> {
+    return this.http.delete<DocumentRepositoryUser[]>(`${this.apiUrl}/${procedureId}/documents/invites/${encodeURIComponent(username)}`);
   }
 }

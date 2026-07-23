@@ -104,7 +104,7 @@ El asistente puede usar un modelo neuronal local sin consumir servicios externos
 AI_PROVIDER=ollama
 OLLAMA_URL=http://ollama:11434
 OLLAMA_MODEL=qwen2.5:3b-instruct
-OLLAMA_TIMEOUT_SECONDS=45
+OLLAMA_TIMEOUT_SECONDS=300
 AI_NEURAL_MAX_RULE_NODES=80
 ```
 
