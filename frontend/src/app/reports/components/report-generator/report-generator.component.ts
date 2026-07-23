@@ -157,6 +157,7 @@ export class ReportGeneratorComponent implements OnInit, AfterViewChecked {
     // We get the selected policy and send its context
     const policy = this.policies().find(p => p.id === policyId);
     const diagramContext = policy?.rules || null;
+    const rulesSnapshot = policy?.rules || null;
 
     this.aiService.draftReport({
       text: prompt,
@@ -168,7 +169,8 @@ export class ReportGeneratorComponent implements OnInit, AfterViewChecked {
         inputMode: 'text',
         policyName: policy?.name || 'Política',
         policyStatus: policy?.status || 'BORRADOR',
-        diagramContext
+        diagramContext,
+        rules: rulesSnapshot
       }
     }).subscribe({
       next: (response) => {

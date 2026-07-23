@@ -238,11 +238,14 @@ class AzureOpenAIClient:
                 {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
             ],
             "response_format": {"type": "json_object"},
-            "temperature": temperature,
-            "max_tokens": 4096,
         }
         if self._uses_openai_v1:
             payload["model"] = self.deployment
+            payload["max_completion_tokens"] = 4096
+            payload["temperature"] = 1.0
+        else:
+            payload["max_tokens"] = 4096
+            payload["temperature"] = temperature
 
         with httpx.Client(timeout=self.timeout_seconds) as client:
             response = client.post(
@@ -988,6 +991,8 @@ class AICoreRuntime:
         policy_deadline = self._first_context_value(context, ("deadline", "dueDate", "targetDate", "sla"))
         diagram_context = self._first_context_value(context, ("diagramContext", "diagram", "graph", "flow", "board"))
         rules_context = self._first_context_value(context, ("rules", "policyRules", "rulesSnapshot"))
+        if not rules_context:
+            rules_context = diagram_context
         report_type = self._infer_report_type(prompt_text, transcript, predictions)
 
         prompt_excerpt = self._shorten_report_text(prompt_text or transcript, 220)

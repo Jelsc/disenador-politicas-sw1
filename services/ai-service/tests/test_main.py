@@ -226,6 +226,9 @@ class AzureOpenAIClientTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(client.post.call_args.args[0], "https://example.openai.azure.com/openai/v1/chat/completions")
         self.assertEqual(client.post.call_args.kwargs["json"]["model"], "demo-model")
+        self.assertEqual(client.post.call_args.kwargs["json"]["max_completion_tokens"], 4096)
+        self.assertEqual(client.post.call_args.kwargs["json"]["temperature"], 1.0)
+        self.assertNotIn("max_tokens", client.post.call_args.kwargs["json"])
 
 
 class NoopDlCore:
@@ -593,6 +596,29 @@ class AiServiceEndpointsTest(unittest.TestCase):
         self.assertIsNone(body["clarification"])
         self.assertFalse(body["missingFields"])
         self.assertTrue(body["recommendations"])
+
+    def test_report_draft_uses_diagram_context_as_rules_fallback(self) -> None:
+        runtime = AICoreRuntime(
+            ollama_client=FailingOllamaClient(RuntimeError("ollama offline")),
+            dl_core=DraftDlCore(),
+            tensor_core=FakeTensorFlowCore(),
+        )
+
+        result = runtime.report_draft(
+            {
+                "text": "Generame un reporte de riesgo operativo sobre esta política.",
+                "policyName": "Política legal",
+                "context": {
+                    "policyStatus": "En revisión",
+                    "diagramContext": {"nodes": ["ingreso"], "connectors": ["ingreso->aprobacion"]},
+                },
+            }
+        )
+
+        self.assertEqual(result["modelSource"], "tensorflow")
+        self.assertEqual(result["reportType"], "operational-risk")
+        self.assertFalse(result["missingFields"])
+        self.assertNotIn("context.rules", result["missingFields"])
 
     def test_assistant_scales_suggested_rules_across_multiple_departments(self) -> None:
         runtime = AICoreRuntime(
