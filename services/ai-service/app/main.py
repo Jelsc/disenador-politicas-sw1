@@ -1168,8 +1168,9 @@ def append_prompt_driven_flow_changes(rules: dict[str, Any], request: AssistantR
     normalized_prompt = normalize_text(prompt)
     add_words = any(word in normalized_prompt for word in ["add", "include", "insert", "append", "incorp", "agreg", "añad", "anad", "sum"])
     approval_words = any(word in normalized_prompt for word in ["approval", "approve", "aprob", "valid", "authorize", "autoriza", "cierra"])
-    legal_info_words = any(word in normalized_prompt for word in ["legal info", "info legal", "informacion legal", "información legal"])
-    if not (add_words or approval_words or legal_info_words):
+    legal_info_words = any(word in normalized_prompt for word in ["legal info", "info legal", "informacion legal", "información legal", "info de legal", "datos legal", "datos legales"])
+    data_capture_words = any(word in normalized_prompt for word in ["recopil", "recolec", "captur", "registro", "levantar datos", "datos", "document", "eviden", "informac"])
+    if not (add_words or approval_words or legal_info_words or data_capture_words):
         return None
 
     nodes = rules.setdefault("nodes", [])
@@ -1233,6 +1234,33 @@ def append_prompt_driven_flow_changes(rules: dict[str, Any], request: AssistantR
         previous_id = node_id
         previous_x += 220
         created_labels.append(task_label)
+
+    if data_capture_words:
+        target_department = None
+        if requested_departments:
+            target_department = next((department for department in requested_departments if any(keyword in normalize_text(str(department.get("name") or department.get("id") or "")) for keyword in ["legal", "jurid", "data", "datos", "info"])), requested_departments[0])
+        if target_department is None:
+            target_department = department_by_id(rules, str(anchor.get("departmentId") or "")) or {"id": anchor.get("departmentId") or "general", "name": "General"}
+
+        department_id = str(target_department.get("id") or target_department.get("name") or "general")
+        normalized_department_name = str(target_department.get("name") or department_id).strip() or department_id
+        label_suffix = normalized_department_name if normalized_department_name.lower() != "general" else "del trámite"
+        if not any("recop" in normalize_text(str(node.get("label") or "")) or "dato" in normalize_text(str(node.get("label") or "")) for node in nodes if node.get("type") == "TASK"):
+            node_id = unique_id(nodes, "task_ia_recopilacion")
+            task_label = f"Recopilación de datos {label_suffix}".strip()
+            nodes.append({
+                "id": node_id,
+                "type": "TASK",
+                "departmentId": department_id,
+                "label": task_label,
+                "x": previous_x + 220,
+                "y": lane_y_for_department(rules, department_id),
+                "config": task_config(request.policyName or "la política", "DOCUMENTAL"),
+            })
+            connectors.append({"id": unique_id(connectors, f"c_{previous_id}_{node_id}"), "sourceId": previous_id, "targetId": node_id, "type": "CONTROL_FLOW"})
+            previous_id = node_id
+            previous_x += 220
+            created_labels.append(task_label)
 
     if legal_info_words:
         legal_department = next((department for department in requested_departments if "legal" in normalize_text(str(department.get("name") or department.get("id") or ""))), None)

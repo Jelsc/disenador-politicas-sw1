@@ -802,6 +802,54 @@ class AiServiceEndpointsTest(unittest.TestCase):
         self.assertIn("legal", labels.lower())
         self.assertEqual({dept["id"] for dept in body["suggestedRules"]["departments"]}, {"legal", "it", "operations"})
 
+    def test_assistant_endpoint_handles_legal_data_collection_as_a_distinct_step(self) -> None:
+        runtime = EmptyAssistantRuntime()
+
+        with patch("app.main.get_ai_runtime", return_value=runtime):
+            response = self.client.post(
+                "/assistant",
+                json={
+                    "prompt": "Seguido de la aprobación IT, agregá una tarea para el departamento legal que sea recopilación de datos legal.",
+                    "policyName": "Policy flow",
+                    "rules": {
+                        "version": 1,
+                        "departments": [{"id": "it", "name": "IT"}, {"id": "legal", "name": "Legal"}],
+                        "laneHeights": {"it": 120, "legal": 120},
+                        "nodes": [
+                            {"id": "start", "type": "START", "label": "Inicio", "departmentId": "it", "x": 120, "y": 120},
+                            {
+                                "id": "approval",
+                                "type": "TASK",
+                                "label": "Aprobación IT",
+                                "departmentId": "it",
+                                "x": 320,
+                                "y": 120,
+                                "config": {"taskType": "APPROVAL", "estimatedTime": 12, "form": {"title": "Formulario", "fields": [{"id": "motivo", "type": "TEXT", "label": "Motivo", "required": True, "order": 1, "visibleToClient": False}]}},
+                            },
+                            {"id": "end", "type": "END", "label": "Fin", "departmentId": "legal", "x": 540, "y": 120},
+                        ],
+                        "connectors": [
+                            {"id": "c1", "sourceId": "start", "targetId": "approval", "type": "CONTROL_FLOW"},
+                            {"id": "c2", "sourceId": "approval", "targetId": "end", "type": "CONTROL_FLOW"},
+                        ],
+                    },
+                    "history": [],
+                    "availableDepartments": [
+                        {"id": "it", "name": "IT"},
+                        {"id": "legal", "name": "Legal"},
+                        {"id": "operations", "name": "Operations"},
+                    ],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["suggestedRules"]["nodes"])
+        labels = [node.get("label", "") for node in body["suggestedRules"]["nodes"]]
+        self.assertTrue(any("recop" in label.lower() for label in labels))
+        self.assertTrue(any(node.get("departmentId") == "legal" for node in body["suggestedRules"]["nodes"]))
+        self.assertNotRegex(body["answer"].lower(), r"tensorflow|ollama|azure|openai")
+
     def test_form_assist_uses_tensorflow_local_path_without_ollama(self) -> None:
         runtime = AICoreRuntime(
             ollama_client=FailingOllamaClient(RuntimeError("ollama offline")),
